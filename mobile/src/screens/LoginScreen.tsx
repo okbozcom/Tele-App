@@ -46,8 +46,8 @@ const LoginBackground: React.FC<{ isWide: boolean }> = ({ isWide }) => (
     <ImageBackground
       source={
         isWide
-          ? require('../../assets/web view.png')
-          : require('../../assets/login page iamge.png')
+          ? require('../../assets/login-bg-web.png')
+          : require('../../assets/login-bg-mobile.png')
       }
       style={StyleSheet.absoluteFill}
       imageStyle={styles.backgroundImage}
