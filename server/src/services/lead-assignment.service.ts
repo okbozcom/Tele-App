@@ -85,7 +85,22 @@ export class LeadAssignmentService {
     };
 
     if (campaign.distributionMode === 'EQUAL') {
-      const eligible = await this.getEligibleAgents(campaign.agentIds);
+      let eligible = await this.getEligibleAgents(campaign.agentIds);
+      if (campaign.branch) {
+        const branchEligible = eligible.filter(
+          (a) => a.branch && a.branch.toLowerCase().trim() === campaign.branch!.toLowerCase().trim(),
+        );
+        if (branchEligible.length > 0) {
+          eligible = branchEligible;
+        } else {
+          eligible = await User.find({
+            role: 'AGENT',
+            branch: campaign.branch,
+            isActive: true,
+            canReceiveLeads: true,
+          });
+        }
+      }
       return this.pickBalancedAgent(eligible, campaign._id);
     }
 

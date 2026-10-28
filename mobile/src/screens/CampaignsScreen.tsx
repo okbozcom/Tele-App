@@ -25,6 +25,10 @@ import {
   ShieldAlert,
   Play,
   Pause,
+  MapPin,
+  Building2,
+  Globe,
+  Shield,
 } from 'lucide-react-native';
 import { useNavigation } from '@react-navigation/native';
 
@@ -36,11 +40,13 @@ import {
   deleteCampaign,
   fetchPipelines,
   fetchUsers,
+  fetchBranches,
 } from '../api/leadApi';
 import {
   Campaign,
   Pipeline,
   User,
+  Branch,
   CampaignPriority,
   DistributionMode,
   DuplicateMode,
@@ -53,6 +59,7 @@ import { CrmShell } from '../components/CrmShell';
 interface DisplayCampaign {
   _id: string;
   name: string;
+  branch?: string | null;
   priority: 'High priority' | 'Medium priority' | 'Low priority';
   rawPriority: CampaignPriority;
   isActive: boolean;
@@ -70,6 +77,8 @@ export const CampaignsScreen: React.FC = () => {
   const queryClient = useQueryClient();
   const { user } = useAuthStore();
   const isAgent = user?.role === 'AGENT';
+  const isManager = user?.role === 'MANAGER';
+  const isAdmin = user?.role === 'ADMIN';
   const { width } = useWindowDimensions();
   const isWide = width >= 768;
 
@@ -78,6 +87,10 @@ export const CampaignsScreen: React.FC = () => {
 
   // Form State
   const [name, setName] = useState('');
+  const [branch, setBranch] = useState<string | null>(isManager && user?.branch ? user.branch : null);
+  const [selectedBranchFilter, setSelectedBranchFilter] = useState<string>(
+    isManager && user?.branch ? user.branch : 'ALL',
+  );
   const [pipelineId, setPipelineId] = useState('');
   const [priority, setPriority] = useState<CampaignPriority>('MEDIUM');
   const [distributionMode, setDistributionMode] = useState<DistributionMode>('EQUAL');
@@ -108,11 +121,26 @@ export const CampaignsScreen: React.FC = () => {
     (u) => u.role === 'AGENT' && u.isActive,
   );
 
+  const { data: branchesData } = useQuery({
+    queryKey: ['adminBranches'],
+    queryFn: fetchBranches,
+    enabled: !isAgent,
+  });
+  const branchesList: Branch[] = branchesData?.branches || [];
+
+  const availableBranches = useMemo(() => {
+    const list = branchesList.map((b) => b.name);
+    const fromUsers = (usersData?.users || []).map((u) => u.branch).filter(Boolean) as string[];
+    const defaults = ['Coimbatore', 'Trichy', 'Pudukkottai', 'Chennai', 'Madurai'];
+    return Array.from(new Set([...list, ...fromUsers, ...defaults])).filter(Boolean);
+  }, [branchesList, usersData]);
+
   // Save Mutation
   const saveMutation = useMutation({
     mutationFn: async () => {
       const payload: Partial<Campaign> = {
         name: name.trim(),
+        branch: isManager ? (user?.branch || null) : (branch ? branch : null),
         pipelineId: pipelineId || pipelinesList[0]?._id,
         priority,
         distributionMode,
@@ -203,6 +231,7 @@ export const CampaignsScreen: React.FC = () => {
       return {
         _id: c._id,
         name: c.name,
+        branch: c.branch || null,
         priority: pLabel as any,
         rawPriority: c.priority,
         isActive: c.isActive !== false,
@@ -220,13 +249,24 @@ export const CampaignsScreen: React.FC = () => {
     });
   }, [campaignsData, agentsList]);
 
+  // Filtered campaigns by branch
+  const filteredDisplayList = useMemo(() => {
+    if (selectedBranchFilter === 'ALL') return displayList;
+    return displayList.filter(
+      (c) =>
+        c.branch &&
+        c.branch.toLowerCase().trim() === selectedBranchFilter.toLowerCase().trim(),
+    );
+  }, [displayList, selectedBranchFilter]);
+
   // Overall statistics
-  const totalCampaignsCount = displayList.length;
-  const totalLeadsSum = displayList.reduce((acc, c) => acc + c.totalLeads, 0);
+  const totalCampaignsCount = filteredDisplayList.length;
+  const totalLeadsSum = filteredDisplayList.reduce((acc, c) => acc + c.totalLeads, 0);
 
   const openNew = () => {
     setEditingId(null);
     setName('');
+    setBranch(isManager && user?.branch ? user.branch : null);
     setPipelineId(pipelinesList[0]?._id || '');
     setPriority('MEDIUM');
     setDistributionMode('EQUAL');
@@ -237,13 +277,15 @@ export const CampaignsScreen: React.FC = () => {
   };
 
   const openEdit = (c: DisplayCampaign) => {
+    const original = (campaignsData?.campaigns || []).find((x) => x._id === c._id);
     setEditingId(c._id);
     setName(c.name);
+    setBranch(original?.branch || null);
     setPriority(c.rawPriority);
-    setDistributionMode('EQUAL');
-    setDuplicateMode('SKIP');
-    setSelectedAgentIds([]);
-    setQuestions([]);
+    setDistributionMode(original?.distributionMode || 'EQUAL');
+    setDuplicateMode(original?.duplicateMode || 'SKIP');
+    setSelectedAgentIds(original?.agentIds || []);
+    setQuestions(original?.engagementForm || []);
     setShowModal(true);
   };
 
@@ -315,14 +357,64 @@ export const CampaignsScreen: React.FC = () => {
           </TouchableOpacity>
         </View>
 
+        {/* Branch Filter Tabs for Admin */}
+        {isAdmin && (
+          <View style={{ marginBottom: 14 }}>
+            <ScrollView
+              horizontal
+              showsHorizontalScrollIndicator={false}
+              contentContainerStyle={{ gap: 8, paddingVertical: 4 }}
+            >
+              <TouchableOpacity
+                style={[
+                  styles.filterTabChip,
+                  selectedBranchFilter === 'ALL' && styles.filterTabChipActive,
+                ]}
+                onPress={() => setSelectedBranchFilter('ALL')}
+              >
+                <Building2 size={13} color={selectedBranchFilter === 'ALL' ? '#FFFFFF' : '#64748B'} />
+                <Text
+                  style={[
+                    styles.filterTabChipText,
+                    selectedBranchFilter === 'ALL' && styles.filterTabChipTextActive,
+                  ]}
+                >
+                  All Branches ({displayList.length})
+                </Text>
+              </TouchableOpacity>
+
+              {availableBranches.map((br) => {
+                const count = displayList.filter(
+                  (c) => c.branch && c.branch.toLowerCase().trim() === br.toLowerCase().trim(),
+                ).length;
+                const isSel = selectedBranchFilter.toLowerCase().trim() === br.toLowerCase().trim();
+                return (
+                  <TouchableOpacity
+                    key={br}
+                    style={[styles.filterTabChip, isSel && styles.filterTabChipActive]}
+                    onPress={() => setSelectedBranchFilter(br)}
+                  >
+                    <MapPin size={13} color={isSel ? '#FFFFFF' : '#64748B'} />
+                    <Text style={[styles.filterTabChipText, isSel && styles.filterTabChipTextActive]}>
+                      {br} ({count})
+                    </Text>
+                  </TouchableOpacity>
+                );
+              })}
+            </ScrollView>
+          </View>
+        )}
+
         {/* Campaign Cards List */}
         <View style={{ gap: 14 }}>
-          {displayList.length === 0 ? (
+          {filteredDisplayList.length === 0 ? (
             <View style={{ backgroundColor: '#FFFFFF', borderRadius: 14, padding: 32, alignItems: 'center', borderWidth: 1, borderColor: '#E2E8F0' }}>
               <Megaphone size={36} color="#94A3B8" />
-              <Text style={{ fontSize: 15, fontWeight: '700', color: '#1E293B', marginTop: 12 }}>No Campaigns Yet</Text>
+              <Text style={{ fontSize: 15, fontWeight: '700', color: '#1E293B', marginTop: 12 }}>No Campaigns Found</Text>
               <Text style={{ fontSize: 12.5, color: '#64748B', textAlign: 'center', marginTop: 4, marginBottom: 16 }}>
-                Create your first calling campaign to start distributing leads to your agents.
+                {selectedBranchFilter === 'ALL'
+                  ? 'Create your first calling campaign to start distributing leads to your agents.'
+                  : `No campaigns found for ${selectedBranchFilter} branch. Create one below.`}
               </Text>
               {!isAgent && (
                 <TouchableOpacity
@@ -334,7 +426,7 @@ export const CampaignsScreen: React.FC = () => {
               )}
             </View>
           ) : (
-            displayList.map((camp) => {
+            filteredDisplayList.map((camp) => {
               const isCampActive = activeStatusOverrides[camp._id] ?? camp.isActive;
               const dialedLeads = (camp as any).dialedLeads ?? 0;
               const totalLeads = camp.totalLeads;
@@ -381,8 +473,19 @@ export const CampaignsScreen: React.FC = () => {
                     </View>
                   </View>
 
-                  {/* Running / Paused Pill & Priority */}
+                  {/* Running / Paused Pill & Branch & Priority */}
                   <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                    {camp.branch ? (
+                      <View style={styles.cardBranchBadge}>
+                        <MapPin size={10} color="#2563EB" />
+                        <Text style={styles.cardBranchBadgeText}>{camp.branch}</Text>
+                      </View>
+                    ) : (
+                      <View style={[styles.cardBranchBadge, { backgroundColor: '#F8FAFC', borderColor: '#E2E8F0' }]}>
+                        <Globe size={10} color="#64748B" />
+                        <Text style={[styles.cardBranchBadgeText, { color: '#64748B' }]}>Global HQ</Text>
+                      </View>
+                    )}
                     <View
                       style={{
                         flexDirection: 'row',
@@ -622,7 +725,7 @@ export const CampaignsScreen: React.FC = () => {
             </View>
 
             <ScrollView style={{ maxHeight: 420 }} showsVerticalScrollIndicator={false}>
-              <Text style={styles.inputLabel}>CAMPAIGN NAME</Text>
+              <Text style={styles.modalInputLabel}>CAMPAIGN NAME</Text>
               <TextInput
                 style={styles.modalInput}
                 placeholder="e.g. Q4 Real Estate Outreach"
@@ -630,6 +733,114 @@ export const CampaignsScreen: React.FC = () => {
                 value={name}
                 onChangeText={setName}
               />
+
+              {/* Branch Scope Section */}
+              <Text style={[styles.inputLabel, { marginTop: 12 }]}>BRANCH SCOPE</Text>
+              {isManager ? (
+                <View style={styles.branchLockedBox}>
+                  <Shield size={14} color="#6366F1" />
+                  <Text style={styles.branchLockedText}>
+                    📍 {user?.branch || 'My Branch'} (Branch Manager Locked)
+                  </Text>
+                </View>
+              ) : (
+                <ScrollView
+                  horizontal
+                  showsHorizontalScrollIndicator={false}
+                  contentContainerStyle={{ gap: 8, paddingVertical: 4 }}
+                >
+                  <TouchableOpacity
+                    style={[styles.branchSelectChip, !branch && styles.branchSelectChipActive]}
+                    onPress={() => setBranch(null)}
+                  >
+                    <Globe size={13} color={!branch ? '#FFFFFF' : '#64748B'} />
+                    <Text style={[styles.branchSelectChipText, !branch && styles.branchSelectChipTextActive]}>
+                      Global / HQ
+                    </Text>
+                  </TouchableOpacity>
+
+                  {availableBranches.map((br) => {
+                    const isSel = branch?.toLowerCase().trim() === br.toLowerCase().trim();
+                    return (
+                      <TouchableOpacity
+                        key={br}
+                        style={[styles.branchSelectChip, isSel && styles.branchSelectChipActive]}
+                        onPress={() => setBranch(br)}
+                      >
+                        <MapPin size={13} color={isSel ? '#FFFFFF' : '#64748B'} />
+                        <Text style={[styles.branchSelectChipText, isSel && styles.branchSelectChipTextActive]}>
+                          {br}
+                        </Text>
+                      </TouchableOpacity>
+                    );
+                  })}
+                </ScrollView>
+              )}
+
+              {/* Assigned Branch Telecallers */}
+              <Text style={[styles.inputLabel, { marginTop: 12 }]}>
+                ASSIGNED TELECALLERS ({branch ? `${branch} Branch` : 'Global'})
+              </Text>
+              <ScrollView
+                style={{
+                  maxHeight: 120,
+                  borderWidth: 1,
+                  borderColor: '#E2E8F0',
+                  borderRadius: 8,
+                  padding: 6,
+                  backgroundColor: '#F8FAFC',
+                }}
+                nestedScrollEnabled={true}
+              >
+                {agentsList
+                  .filter((a) => !branch || (a.branch && a.branch.toLowerCase().trim() === branch.toLowerCase().trim()))
+                  .map((agent) => {
+                    const isSelected = selectedAgentIds.includes(agent._id);
+                    return (
+                      <TouchableOpacity
+                        key={agent._id}
+                        style={{
+                          flexDirection: 'row',
+                          alignItems: 'center',
+                          justifyContent: 'space-between',
+                          paddingVertical: 7,
+                          paddingHorizontal: 8,
+                          borderRadius: 6,
+                          backgroundColor: isSelected ? '#EFF6FF' : 'transparent',
+                        }}
+                        onPress={() => {
+                          if (isSelected) {
+                            setSelectedAgentIds(selectedAgentIds.filter((id) => id !== agent._id));
+                          } else {
+                            setSelectedAgentIds([...selectedAgentIds, agent._id]);
+                          }
+                        }}
+                      >
+                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, flex: 1 }}>
+                          <Users size={13} color={isSelected ? '#2563EB' : '#64748B'} />
+                          <Text
+                            style={{
+                              fontSize: 12,
+                              fontWeight: isSelected ? '700' : '500',
+                              color: isSelected ? '#1D4ED8' : '#334155',
+                            }}
+                            numberOfLines={1}
+                          >
+                            {agent.name} {agent.branch ? `(${agent.branch})` : ''}
+                          </Text>
+                        </View>
+                        {isSelected && <Check size={14} color="#2563EB" strokeWidth={2.5} />}
+                      </TouchableOpacity>
+                    );
+                  })}
+                {agentsList.filter((a) => !branch || (a.branch && a.branch.toLowerCase().trim() === branch.toLowerCase().trim())).length === 0 && (
+                  <View style={{ padding: 8 }}>
+                    <Text style={{ fontSize: 11.5, color: '#64748B' }}>
+                      No active agents in {branch || 'Global'}. Agents can also be auto-assigned via branch round robin.
+                    </Text>
+                  </View>
+                )}
+              </ScrollView>
 
               <Text style={[styles.inputLabel, { marginTop: 12 }]}>PRIORITY</Text>
               <View style={styles.prioritySelectorRow}>
@@ -1062,6 +1273,94 @@ const styles = StyleSheet.create({
     color: '#0F172A',
     padding: 0,
     marginTop: 2,
+  },
+  modalInputLabel: {
+    fontSize: 10,
+    fontWeight: '700',
+    color: '#64748B',
+    letterSpacing: 0.5,
+    marginBottom: 6,
+  },
+  filterTabChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingVertical: 6,
+    paddingHorizontal: 12,
+    borderRadius: 8,
+    backgroundColor: '#FFFFFF',
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+  },
+  filterTabChipActive: {
+    backgroundColor: '#2563EB',
+    borderColor: '#2563EB',
+  },
+  filterTabChipText: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: '#475569',
+  },
+  filterTabChipTextActive: {
+    color: '#FFFFFF',
+    fontWeight: '700',
+  },
+  cardBranchBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    backgroundColor: '#EFF6FF',
+    paddingHorizontal: 7,
+    paddingVertical: 3,
+    borderRadius: 6,
+    borderWidth: 1,
+    borderColor: '#DBEAFE',
+  },
+  cardBranchBadgeText: {
+    color: '#1E40AF',
+    fontSize: 10.5,
+    fontWeight: '700',
+  },
+  branchLockedBox: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    backgroundColor: '#EEF2FF',
+    borderWidth: 1,
+    borderColor: '#C7D2FE',
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    borderRadius: 8,
+    marginTop: 4,
+  },
+  branchLockedText: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#4F46E5',
+  },
+  branchSelectChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingVertical: 6,
+    paddingHorizontal: 12,
+    borderRadius: 8,
+    backgroundColor: '#FFFFFF',
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+  },
+  branchSelectChipActive: {
+    backgroundColor: '#2563EB',
+    borderColor: '#2563EB',
+  },
+  branchSelectChipText: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: '#475569',
+  },
+  branchSelectChipTextActive: {
+    color: '#FFFFFF',
+    fontWeight: '700',
   },
   saveSubmitBtn: {
     backgroundColor: '#2563EB',

@@ -88,6 +88,7 @@ export interface Campaign {
   pipelineId: string;
   managerId: string;
   agentIds: string[];
+  branch?: string | null;
   distributionMode: DistributionMode;
   conditionalRules: ConditionalRule[];
   fallbackAgentId?: string | null;

@@ -64,7 +64,12 @@ export class CampaignService {
 
     await this.validateAgents(agentsToValidate);
 
-    // Determine manager ID
+    // Determine branch and manager ID
+    let branch = input.branch ? input.branch.trim() : null;
+    if (requester.role === 'MANAGER') {
+      branch = requester.branch || null;
+    }
+
     let managerId: Types.ObjectId;
     if (requester.role === 'MANAGER') {
       managerId = requester._id;
@@ -75,6 +80,9 @@ export class CampaignService {
           throw new AppError('Assigned manager must be an active MANAGER or ADMIN user', 400);
         }
         managerId = mgr._id;
+      } else if (branch) {
+        const branchMgr = await User.findOne({ role: 'MANAGER', branch, isActive: true });
+        managerId = branchMgr ? branchMgr._id : requester._id;
       } else {
         managerId = requester._id;
       }
@@ -84,6 +92,7 @@ export class CampaignService {
       name: input.name.trim(),
       pipelineId: new Types.ObjectId(input.pipelineId),
       managerId,
+      branch,
       agentIds: input.agentIds.map((id) => new Types.ObjectId(id)),
       distributionMode: input.distributionMode,
       conditionalRules: input.conditionalRules.map((rule) => ({
@@ -101,21 +110,37 @@ export class CampaignService {
     return campaign;
   }
 
-  public static async listCampaigns(requester: IUserDoc): Promise<ICampaignDoc[]> {
+  public static async listCampaigns(
+    requester: IUserDoc,
+    queryParam?: { branch?: string },
+  ): Promise<ICampaignDoc[]> {
     let query: Record<string, unknown> = {};
 
     if (requester.role === 'ADMIN') {
-      query = {};
+      if (queryParam?.branch && queryParam.branch !== 'ALL') {
+        query = { branch: queryParam.branch };
+      } else {
+        query = {};
+      }
     } else if (requester.role === 'MANAGER') {
-      query = { managerId: requester._id };
-    } else if (requester.role === 'AGENT') {
-      const assignedCampaignIds = await Lead.distinct('campaignId', { assignedTo: requester._id });
       query = {
         $or: [
-          { agentIds: requester._id, isActive: true },
-          { _id: { $in: assignedCampaignIds }, isActive: true },
-          { agentIds: { $size: 0 }, isActive: true },
-          { isActive: true },
+          { managerId: requester._id },
+          ...(requester.branch ? [{ branch: requester.branch }] : []),
+        ],
+      };
+    } else if (requester.role === 'AGENT') {
+      const assignedCampaignIds = await Lead.distinct('campaignId', { assignedTo: requester._id });
+      const branchCondition = requester.branch
+        ? [{ branch: requester.branch }, { branch: null }]
+        : [{ branch: null }];
+
+      query = {
+        isActive: true,
+        $or: [
+          { agentIds: requester._id },
+          { _id: { $in: assignedCampaignIds } },
+          { $and: [{ agentIds: { $size: 0 } }, { $or: branchCondition }] },
         ],
       };
     }
@@ -215,7 +240,9 @@ export class CampaignService {
 
     // Access authorization check
     if (requester.role === 'MANAGER') {
-      if (campaign.managerId._id.toString() !== requester._id.toString()) {
+      const isOwner = campaign.managerId._id.toString() === requester._id.toString();
+      const isBranchMatch = Boolean(requester.branch && campaign.branch && requester.branch === campaign.branch);
+      if (!isOwner && !isBranchMatch) {
         throw new AppError('Forbidden: You can only view your own campaigns', 403);
       }
     } else if (requester.role === 'AGENT') {
@@ -240,8 +267,16 @@ export class CampaignService {
       throw new AppError('Campaign not found', 404);
     }
 
-    if (requester.role === 'MANAGER' && campaign.managerId.toString() !== requester._id.toString()) {
-      throw new AppError('Forbidden: You can only edit your own campaigns', 403);
+    if (requester.role === 'MANAGER') {
+      const isOwner = campaign.managerId.toString() === requester._id.toString();
+      const isBranchMatch = Boolean(requester.branch && campaign.branch && requester.branch === campaign.branch);
+      if (!isOwner && !isBranchMatch) {
+        throw new AppError('Forbidden: You can only edit your own campaigns', 403);
+      }
+    }
+
+    if (updates.branch !== undefined && requester.role === 'ADMIN') {
+      campaign.branch = updates.branch ? updates.branch.trim() : null;
     }
 
     if (updates.pipelineId) {

@@ -346,6 +346,18 @@ export const updateUser = async (
 };
 
 /**
+ * Permanently deletes a user and safely reassigns their open leads.
+ */
+export const deleteUser = async (
+  id: string,
+): Promise<{ success: boolean; message: string; reassignedCount?: number }> => {
+  const response = await apiClient.delete<{ success: boolean; message: string; reassignedCount?: number }>(
+    `/api/users/${id}`,
+  );
+  return response.data;
+};
+
+/**
  * Creates a new campaign with distribution rules and engagement questions.
  */
 export const createCampaign = async (

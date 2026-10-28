@@ -69,4 +69,16 @@ export class UserController {
       next(error);
     }
   }
+
+  public static async deleteUser(req: Request, res: Response, next: NextFunction): Promise<void> {
+    try {
+      if (!req.user) {
+        throw new AppError('Authentication required', 401);
+      }
+      const result = await UserService.deleteUser(req.user, req.params.id);
+      res.status(200).json(result);
+    } catch (error) {
+      next(error);
+    }
+  }
 }
