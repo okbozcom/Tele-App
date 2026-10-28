@@ -77,6 +77,7 @@ import { useOutboxStore } from '../store/outboxStore';
 import { OutboxStatusBanner } from '../components/OutboxStatusBanner';
 import { toast } from '../store/toastStore';
 import { getWhatsAppUrl, formatDisplayPhone, isLeadLostOrSuppressed } from '../utils/phoneUtils';
+import { adjustForCallingHours, getDefaultFollowUpIso } from '../utils/callingHours';
 
 type ScreenRouteProp = RouteProp<RootStackParamList, 'LeadDetail' | 'Dispose'>;
 type ScreenNavigationProp = NativeStackNavigationProp<RootStackParamList>;
@@ -277,9 +278,7 @@ export const LeadDetailScreen: React.FC = () => {
   const [actionNextFollowUp, setActionNextFollowUp] = useState<boolean>(true);
   const defaultFollowUpDate = useMemo(() => {
     if (lead.nextFollowUpAt) return lead.nextFollowUpAt;
-    const d = new Date();
-    d.setHours(d.getHours() + 2);
-    return d.toISOString();
+    return getDefaultFollowUpIso(2);
   }, [lead.nextFollowUpAt]);
   const [followUpDate, setFollowUpDate] = useState<string | null>(defaultFollowUpDate);
   const [showDatePickerModal, setShowDatePickerModal] = useState<boolean>(false);
@@ -344,7 +343,7 @@ export const LeadDetailScreen: React.FC = () => {
     return deduplicateActivities(local);
   }, [historyData, currentLead._id, getHistoryForLead]);
 
-  // Quick follow-up scheduling helper
+  // Quick follow-up scheduling helper with India calling hours enforcement (09:00 - 20:00 IST)
   const setQuickFollowUp = (hoursAhead: number, specificHour?: number) => {
     const d = new Date();
     if (specificHour !== undefined) {
@@ -354,7 +353,8 @@ export const LeadDetailScreen: React.FC = () => {
     } else {
       d.setTime(d.getTime() + hoursAhead * 60 * 60 * 1000);
     }
-    setFollowUpDate(d.toISOString());
+    const compliant = adjustForCallingHours(d);
+    setFollowUpDate(compliant.toISOString());
     setActionNextFollowUp(true);
   };
 
@@ -412,12 +412,18 @@ export const LeadDetailScreen: React.FC = () => {
   };
 
   const initiateCall = async () => {
+    if (isCallingRef.current || callSession.isCallInProgress()) {
+      toast.warning('A call is already in progress');
+      return;
+    }
+    isCallingRef.current = true;
     setCallActive(true);
 
     try {
       await callSession.startCall(currentLead, {
         callerSource: 'LEAD_DETAIL',
         onCallComplete: (result) => {
+          isCallingRef.current = false;
           setCallActive(false);
           setIsCallAttempt(true);
           setCallDurationSeconds(result.connected ? result.durationSeconds : 0);
@@ -439,8 +445,21 @@ export const LeadDetailScreen: React.FC = () => {
         },
       });
     } catch {
+      isCallingRef.current = false;
       setCallActive(false);
-      Alert.alert('Call Failed', 'Unable to initiate phone call.');
+      Alert.alert(
+        'Call Could Not Launch',
+        'Could not open device phone dialer. Would you like to record a manual call outcome?',
+        [
+          { text: 'Cancel', style: 'cancel' },
+          {
+            text: 'Record Outcome',
+            onPress: () => {
+              setActiveTab('DISPOSE LEAD');
+            },
+          },
+        ],
+      );
     }
   };
 
@@ -490,6 +509,10 @@ export const LeadDetailScreen: React.FC = () => {
       remark?: string;
     }) => {
       const activeStage = override?.stage || selectedState;
+      if (activeStage === 'FOLLOW UP' && (!actionNextFollowUp || !followUpDate)) {
+        throw new Error('Please select a scheduled date and time for this follow-up.');
+      }
+
       const isConnected =
         activeStage !== 'NOT CONNECTED' &&
         activeStage !== 'SWITCHED OFF' &&
@@ -505,7 +528,7 @@ export const LeadDetailScreen: React.FC = () => {
 
       const finalFollowUp =
         !isClosing && actionNextFollowUp
-          ? followUpDate || new Date(Date.now() + 2 * 60 * 60 * 1000).toISOString()
+          ? adjustForCallingHours(new Date(followUpDate || getDefaultFollowUpIso(2))).toISOString()
           : null;
 
       const activeTag = override?.tag || selectedTag;
@@ -768,7 +791,13 @@ export const LeadDetailScreen: React.FC = () => {
 
   const handleSaveContactEdit = async () => {
     const newName = editName.trim() || currentLead.name;
-    const newPhone = editPhone.trim() || currentLead.phone;
+    const rawPhone = editPhone.trim();
+    const cleanDigits = rawPhone.replace(/\D/g, '');
+    if (cleanDigits.length < 10) {
+      Alert.alert('Invalid Phone', 'Customer phone number must contain at least 10 digits.');
+      return;
+    }
+    const newPhone = rawPhone;
     setCurrentLead((prev) => ({
       ...prev,
       name: newName,
