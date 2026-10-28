@@ -284,21 +284,24 @@ const MyLeadsScreenContent: React.FC = () => {
     queryFn: fetchCampaigns,
   });
 
-  // Instant Offline / Cold-Start Cache State (loads in < 2ms)
+  // Instant Offline / Cold-Start Cache State (user-scoped to prevent stale leakage)
   const [cachedLeadsData, setCachedLeadsData] = useState<MyLeadsResponse | null>(null);
+  const userLeadsCacheKey = user?._id
+    ? `tele_crm_my_leads_cache_v2_${user._id}`
+    : 'tele_crm_my_leads_cache_v2';
 
   useEffect(() => {
-    storage.getItem('tele_crm_my_leads_cache_v2').then((saved) => {
+    storage.getItem(userLeadsCacheKey).then((saved) => {
       if (saved) {
         try {
           const parsed = JSON.parse(saved);
-          if (parsed && Array.isArray(parsed.leads) && parsed.leads.length > 0) {
+          if (parsed && Array.isArray(parsed.leads)) {
             setCachedLeadsData(parsed);
           }
         } catch {}
       }
     });
-  }, []);
+  }, [userLeadsCacheKey]);
 
   const {
     data: leadsData,
@@ -308,19 +311,19 @@ const MyLeadsScreenContent: React.FC = () => {
     error: leadsError,
     refetch,
   } = useQuery({
-    queryKey: ['myLeadsList'],
+    queryKey: ['myLeadsList', user?._id],
     queryFn: () => fetchMyLeads({ limit: 5000 }),
-    refetchInterval: 15000,
+    refetchInterval: 45000,
     refetchIntervalInBackground: false,
     staleTime: 1000 * 60 * 3, // 3 minutes cache TTL
   });
 
   useEffect(() => {
-    if (leadsData && Array.isArray(leadsData.leads) && leadsData.leads.length > 0) {
+    if (leadsData && Array.isArray(leadsData.leads)) {
       setCachedLeadsData(leadsData);
-      storage.setItem('tele_crm_my_leads_cache_v2', JSON.stringify(leadsData)).catch(() => {});
+      storage.setItem(userLeadsCacheKey, JSON.stringify(leadsData)).catch(() => {});
     }
-  }, [leadsData]);
+  }, [leadsData, userLeadsCacheKey]);
 
   const effectiveLeadsData = leadsData || cachedLeadsData;
 
@@ -546,9 +549,16 @@ const MyLeadsScreenContent: React.FC = () => {
       return;
     }
 
+    if (isCallingRef.current) {
+      return;
+    }
+
     const isSuppressed = leadStatus === 'Not Interested' || leadStatus === 'Closed';
 
     const executeCall = async () => {
+      if (isCallingRef.current) return;
+      isCallingRef.current = true;
+
       // 1. Resolve Lead object
       const foundLead = (leadsData?.leads || []).find((l: Lead) => l._id === leadId || l.phone === phone);
       const activeLead: Lead = foundLead || {
@@ -573,6 +583,10 @@ const MyLeadsScreenContent: React.FC = () => {
         });
       } catch (err) {
         Alert.alert('Call Error', 'Unable to open phone dialer on this device.');
+      } finally {
+        setTimeout(() => {
+          isCallingRef.current = false;
+        }, 2000);
       }
     };
 

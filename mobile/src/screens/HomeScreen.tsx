@@ -218,30 +218,33 @@ const HomeScreenContent: React.FC = () => {
     ? new Date(customDate).toLocaleDateString([], { month: 'short', day: 'numeric' })
     : 'Date';
 
-  // Compute ISO 'from' and 'to' date for backend query
-  const now = new Date();
-  let fromDate: string | undefined;
-  let toDate: string | undefined;
-  if (period === 'Today') {
-    const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0, 0);
-    const endOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59, 999);
-    fromDate = startOfToday.toISOString();
-    toDate = endOfToday.toISOString();
-  } else if (period === '7 Days') {
-    fromDate = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
-    toDate = new Date().toISOString();
-  } else if (period === '30 Days') {
-    fromDate = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString();
-    toDate = new Date().toISOString();
-  } else if (period === 'Custom' && customDate) {
-    const cd = new Date(customDate);
-    const startOfCustomDay = new Date(cd.getFullYear(), cd.getMonth(), cd.getDate(), 0, 0, 0, 0);
-    const endOfCustomDay = new Date(cd.getFullYear(), cd.getMonth(), cd.getDate(), 23, 59, 59, 999);
-    fromDate = startOfCustomDay.toISOString();
-    toDate = endOfCustomDay.toISOString();
-  }
+  // Stable, normalized ISO 'from' and 'to' date boundaries for backend queries
+  const { fromDate, toDate } = useMemo(() => {
+    const now = new Date();
+    const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0, 0);
+    const todayEnd = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59, 999);
 
-  // 1. Dashboard Metrics from Backend
+    if (period === 'Today') {
+      return { fromDate: todayStart.toISOString(), toDate: todayEnd.toISOString() };
+    }
+    if (period === '7 Days') {
+      const start7 = new Date(todayStart.getTime() - 6 * 24 * 60 * 60 * 1000);
+      return { fromDate: start7.toISOString(), toDate: todayEnd.toISOString() };
+    }
+    if (period === '30 Days') {
+      const start30 = new Date(todayStart.getTime() - 29 * 24 * 60 * 60 * 1000);
+      return { fromDate: start30.toISOString(), toDate: todayEnd.toISOString() };
+    }
+    if (period === 'Custom' && customDate) {
+      const cd = new Date(customDate);
+      const customStart = new Date(cd.getFullYear(), cd.getMonth(), cd.getDate(), 0, 0, 0, 0);
+      const customEnd = new Date(cd.getFullYear(), cd.getMonth(), cd.getDate(), 23, 59, 59, 999);
+      return { fromDate: customStart.toISOString(), toDate: customEnd.toISOString() };
+    }
+    return { fromDate: todayStart.toISOString(), toDate: todayEnd.toISOString() };
+  }, [period, customDate]);
+
+  // 1. Dashboard Metrics from Backend (optimized polling: 45s)
   const queryUserId = !isAgent && callScope === 'TEAM' ? undefined : user?._id;
 
   const {
@@ -259,11 +262,12 @@ const HomeScreenContent: React.FC = () => {
         userId: queryUserId,
         branch: effectiveBranch !== 'ALL' ? effectiveBranch : undefined,
       }),
-    refetchInterval: 15000,
+    refetchInterval: 45000,
     refetchIntervalInBackground: false,
+    staleTime: 30000,
   });
 
-  // 2. Per-Agent Calls (Manager & Admin only)
+  // 2. Per-Agent Calls (Manager & Admin only, optimized polling: 45s)
   const {
     data: userCallsData,
     isLoading: isUserCallsLoading,
@@ -279,35 +283,39 @@ const HomeScreenContent: React.FC = () => {
         branch: effectiveBranch !== 'ALL' ? effectiveBranch : undefined,
       }),
     enabled: isManagerOrAdmin,
-    refetchInterval: 15000,
+    refetchInterval: 45000,
     refetchIntervalInBackground: false,
+    staleTime: 30000,
   });
 
-  // Instant Offline / Cold-Start Cache State (loads in < 2ms)
+  // Instant Offline / Cold-Start Cache State (user-scoped to prevent stale leakage)
   const [cachedLeadsData, setCachedLeadsData] = useState<MyLeadsResponse | null>(null);
+  const userLeadsCacheKey = user?._id
+    ? `tele_crm_my_leads_cache_v2_${user._id}`
+    : 'tele_crm_my_leads_cache_v2';
 
   useEffect(() => {
     incomingCallSyncService.syncIncomingCalls().catch(() => {});
-    storage.getItem('tele_crm_my_leads_cache_v2').then((saved) => {
+    storage.getItem(userLeadsCacheKey).then((saved) => {
       if (saved) {
         try {
           const parsed = JSON.parse(saved);
-          if (parsed && Array.isArray(parsed.leads) && parsed.leads.length > 0) {
+          if (parsed && Array.isArray(parsed.leads)) {
             setCachedLeadsData(parsed);
           }
         } catch {}
       }
     });
-  }, []);
+  }, [userLeadsCacheKey]);
 
-  // 3. Agent's Prioritized Queue (auto-polls for newly assigned leads from admin/manager)
+  // 3. Agent's Prioritized Queue (auto-polls every 45s for newly assigned leads)
   const {
     data: myLeadsData,
     isLoading: isMyLeadsLoading,
     refetch: refetchMyLeads,
     isRefetching: isMyLeadsRefetching,
   } = useQuery({
-    queryKey: ['homeMyLeadsQueue', selectedCampaignId, callScope],
+    queryKey: ['homeMyLeadsQueue', selectedCampaignId, callScope, user?._id],
     queryFn: () =>
       fetchMyLeads({
         type: 'ALL',
@@ -315,17 +323,17 @@ const HomeScreenContent: React.FC = () => {
         userId: !isAgent && callScope === 'MY' && user?._id ? String(user._id) : undefined,
         limit: 5000,
       }),
-    refetchInterval: 15000,
+    refetchInterval: 45000,
     refetchIntervalInBackground: false,
     staleTime: 1000 * 60 * 3, // 3 minutes cache TTL
   });
 
   useEffect(() => {
-    if (myLeadsData && Array.isArray(myLeadsData.leads) && myLeadsData.leads.length > 0) {
+    if (myLeadsData && Array.isArray(myLeadsData.leads)) {
       setCachedLeadsData(myLeadsData);
-      storage.setItem('tele_crm_my_leads_cache_v2', JSON.stringify(myLeadsData)).catch(() => {});
+      storage.setItem(userLeadsCacheKey, JSON.stringify(myLeadsData)).catch(() => {});
     }
-  }, [myLeadsData]);
+  }, [myLeadsData, userLeadsCacheKey]);
 
   const effectiveMyLeadsData = myLeadsData || cachedLeadsData;
 
@@ -348,7 +356,7 @@ const HomeScreenContent: React.FC = () => {
       if (l?.branch) return l.branch.trim().toLowerCase() === target;
       return false;
     });
-  }, [periodActivities, effectiveBranch, myLeadsData]);
+  }, [periodActivities, effectiveBranch, effectiveMyLeadsData]);
 
   // Overall Agent Calls List for Manager & Admin
   const agentCallsList = useMemo(() => {
@@ -520,21 +528,52 @@ const HomeScreenContent: React.FC = () => {
   const localInboundCount = localInboundActivities.length;
   const localInboundConnectedCount = localInboundActivities.filter((a) => a.connected).length;
 
-  const callsMade = Math.max(dashboardData?.callsMade ?? 0, localCallsCount);
-  const connectedCalls = Math.max(dashboardData?.connectedCalls ?? 0, localConnectedCount);
-  const totalCallDurationSeconds = Math.max(
-    dashboardData?.totalDurationSeconds ?? 0,
-    localTotalDuration,
+  // Reconciled Metrics:
+  // Backend aggregated dashboard is the authoritative source of truth.
+  // Optimistic local activities not yet reflected in backend (pending sync or local-only) are reconciled seamlessly.
+  const hasBackendDashboard = dashboardData !== undefined && dashboardData !== null;
+  const pendingOutboundActivities = localOutboundActivities.filter(
+    (a) => (a as any).isPendingSync || (a._id && String(a._id).startsWith('act-local-')),
   );
+  const pendingConnectedActivities = pendingOutboundActivities.filter((a) => a.connected);
+  const pendingDuration = pendingConnectedActivities.reduce(
+    (sum, a) => sum + (a.durationSeconds || 0),
+    0,
+  );
+
+  const pendingInboundActivities = localInboundActivities.filter(
+    (a) => (a as any).isPendingSync || (a._id && String(a._id).startsWith('act-local-')),
+  );
+  const pendingInboundConnected = pendingInboundActivities.filter((a) => a.connected);
+
+  const callsMade = hasBackendDashboard
+    ? (dashboardData.callsMade || 0) + pendingOutboundActivities.length
+    : localCallsCount;
+
+  const connectedCalls = hasBackendDashboard
+    ? (dashboardData.connectedCalls || 0) + pendingConnectedActivities.length
+    : localConnectedCount;
+
+  const totalCallDurationSeconds = hasBackendDashboard
+    ? (dashboardData.totalDurationSeconds || 0) + pendingDuration
+    : localTotalDuration;
+
   const connectRatePercent = callsMade > 0 ? ((connectedCalls / callsMade) * 100).toFixed(0) + '%' : '0%';
 
-  const inboundCallsCount = Math.max(dashboardData?.inboundCalls ?? 0, localInboundCount);
-  const inboundConnectedCount = Math.max(dashboardData?.inboundConnected ?? 0, localInboundConnectedCount);
+  const inboundCallsCount = hasBackendDashboard
+    ? (dashboardData.inboundCalls || 0) + pendingInboundActivities.length
+    : localInboundCount;
+
+  const inboundConnectedCount = hasBackendDashboard
+    ? (dashboardData.inboundConnected || 0) + pendingInboundConnected.length
+    : localInboundConnectedCount;
 
   const avgDurationSeconds =
     connectedCalls > 0 && totalCallDurationSeconds > 0
       ? Math.round(totalCallDurationSeconds / connectedCalls)
-      : Math.max(dashboardData?.averageDurationSeconds ?? 0, 0);
+      : hasBackendDashboard
+      ? (dashboardData.averageDurationSeconds || 0)
+      : 0;
   const avgDurationFormatted = formatSeconds(avgDurationSeconds);
 
   // Dynamic daily call report grouped from real activity history
@@ -556,13 +595,14 @@ const HomeScreenContent: React.FC = () => {
       duration: totalCallDurationSeconds,
     });
 
+    const today = new Date();
     for (const act of allUserActivities) {
       if (!act.createdAt) continue;
       const actDate = new Date(act.createdAt);
       const isToday =
-        actDate.getDate() === now.getDate() &&
-        actDate.getMonth() === now.getMonth() &&
-        actDate.getFullYear() === now.getFullYear();
+        actDate.getDate() === today.getDate() &&
+        actDate.getMonth() === today.getMonth() &&
+        actDate.getFullYear() === today.getFullYear();
 
       if (!isToday) {
         const dateKey = actDate.toLocaleDateString([], { day: '2-digit', month: '2-digit', year: 'numeric' });
@@ -589,7 +629,8 @@ const HomeScreenContent: React.FC = () => {
   }, [callsMade, connectedCalls, localTotalDuration, user?._id]);
 
   // Scheduled callbacks due today
-  const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+  const todayDate = new Date();
+  const startOfToday = new Date(todayDate.getFullYear(), todayDate.getMonth(), todayDate.getDate()).getTime();
   const endOfToday = startOfToday + 24 * 60 * 60 * 1000 - 1;
 
   const dueTodayFollowUps = useMemo(() => {
@@ -603,7 +644,10 @@ const HomeScreenContent: React.FC = () => {
     });
   }, [allBranchFilteredLeads, startOfToday, endOfToday]);
 
-  const callbacksDueTodayCount = Math.max(dashboardData?.followUpsDueToday ?? 0, dueTodayFollowUps.length);
+  const callbacksDueTodayCount =
+    hasBackendDashboard && dashboardData.followUpsDueToday !== undefined && effectiveBranch === 'ALL'
+      ? dashboardData.followUpsDueToday
+      : dueTodayFollowUps.length;
 
   // Sync Bell Icon in Notification Store
   useEffect(() => {
@@ -614,22 +658,58 @@ const HomeScreenContent: React.FC = () => {
   const dailyTargetTotal = 30;
   const targetCompletedPercent = Math.min(100, Math.round((callsMade / dailyTargetTotal) * 100));
 
-  // Immediate queue (top leads ready to call - strictly excludes Not Interested / Closed / Lost)
+  // Immediate queue (prioritized: overdue/due follow-ups -> hot untouched -> new untouched -> contacted)
   const queueLeads = useMemo(() => {
     const raw = allBranchFilteredLeads.filter((l) => !isLeadLostOrSuppressed(l));
-    return [...raw].sort((a, b) => {
-      // 1. Uncontacted leads (attemptCount 0 and no lastContactedAt) first
-      const aCalled = (a.attemptCount && a.attemptCount > 0) || a.lastContactedAt ? 1 : 0;
-      const bCalled = (b.attemptCount && b.attemptCount > 0) || b.lastContactedAt ? 1 : 0;
-      if (aCalled !== bCalled) return aCalled - bCalled;
+    const nowTime = Date.now();
 
-      // 2. For contacted leads: recently contacted goes to the very bottom
-      if (aCalled === 1 && bCalled === 1) {
-        const aTime = a.lastContactedAt ? new Date(a.lastContactedAt).getTime() : 0;
-        const bTime = b.lastContactedAt ? new Date(b.lastContactedAt).getTime() : 0;
-        if (aTime !== bTime) return aTime - bTime;
+    return [...raw].sort((a, b) => {
+      const getPriorityRank = (lead: Lead): number => {
+        // Tier 0: Follow-up is DUE NOW or OVERDUE
+        if (lead.nextFollowUpAt) {
+          const fu = new Date(lead.nextFollowUpAt).getTime();
+          if (!isNaN(fu) && fu <= nowTime + 15 * 60 * 1000) {
+            return 0;
+          }
+        }
+        // Tier 1: HOT / HIGH priority uncontacted lead
+        const isHot = lead.temperature === 'HOT' || (lead as any).priority === 'HOT' || (lead as any).priority === 'HIGH';
+        const isUntouched = (!lead.attemptCount || lead.attemptCount === 0) && !lead.lastContactedAt;
+        if (isHot && isUntouched) return 1;
+
+        // Tier 2: Normal untouched lead
+        if (isUntouched) return 2;
+
+        // Tier 3: HOT / HIGH priority contacted lead
+        if (isHot) return 3;
+
+        // Tier 4: Future follow-up or standard contacted lead
+        return 4;
+      };
+
+      const rankA = getPriorityRank(a);
+      const rankB = getPriorityRank(b);
+      if (rankA !== rankB) return rankA - rankB;
+
+      // Tie-breakers within the same rank:
+      if (rankA === 0) {
+        // Earliest scheduled callback first
+        const tA = a.nextFollowUpAt ? new Date(a.nextFollowUpAt).getTime() : 0;
+        const tB = b.nextFollowUpAt ? new Date(b.nextFollowUpAt).getTime() : 0;
+        return tA - tB;
       }
-      return 0;
+
+      if (rankA === 1 || rankA === 2) {
+        // Newest created untouched lead first
+        const cA = a.createdAt ? new Date(a.createdAt).getTime() : 0;
+        const cB = b.createdAt ? new Date(b.createdAt).getTime() : 0;
+        return cB - cA;
+      }
+
+      // Oldest contacted first (least recently contacted)
+      const aTime = a.lastContactedAt ? new Date(a.lastContactedAt).getTime() : 0;
+      const bTime = b.lastContactedAt ? new Date(b.lastContactedAt).getTime() : 0;
+      return aTime - bTime;
     });
   }, [allBranchFilteredLeads]);
 
@@ -688,6 +768,10 @@ const HomeScreenContent: React.FC = () => {
   // NATIVE CALLING & AUTOMATIC CALL DETECTION (Like NeoDove)
   // ==============================================================
   const handleDirectDial = async (leadItem: Lead) => {
+    if (isCallingRef.current) {
+      return;
+    }
+
     const isSuppressed =
       leadItem.status === 'CLOSED' ||
       leadItem.stage === 'Not Interested' ||
@@ -695,6 +779,8 @@ const HomeScreenContent: React.FC = () => {
       leadItem.stage === 'Lost';
 
     const executeDial = async () => {
+      if (isCallingRef.current) return;
+      isCallingRef.current = true;
       toast.info(`Calling ${leadItem.name}...`, 'Dialing');
 
       try {
@@ -706,6 +792,10 @@ const HomeScreenContent: React.FC = () => {
         });
       } catch (err) {
         Alert.alert('Call Error', 'Could not open phone dialer on this device.');
+      } finally {
+        setTimeout(() => {
+          isCallingRef.current = false;
+        }, 2000);
       }
     };
 

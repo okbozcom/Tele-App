@@ -52,6 +52,11 @@ class CallSessionManager {
       return false;
     }
 
+    if (this.isCalling) {
+      console.warn('[CallSession] A call is already in progress, ignoring duplicate startCall');
+      return false;
+    }
+
     this.activeSession = {
       lead,
       startTime: Date.now(),

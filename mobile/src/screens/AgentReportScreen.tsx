@@ -103,7 +103,7 @@ export const AgentReportScreen: React.FC = () => {
       };
     }
     if (period === 'WEEK') {
-      const sevenDaysAgo = new Date(now.getTime() - 7 * 24 * 3600 * 1000);
+      const sevenDaysAgo = new Date(startOfToday.getTime() - 6 * 24 * 3600 * 1000);
       return {
         fromDate: sevenDaysAgo.toISOString(),
         toDate: endOfToday.toISOString(),
@@ -111,7 +111,7 @@ export const AgentReportScreen: React.FC = () => {
       };
     }
     if (period === 'MONTH') {
-      const thirtyDaysAgo = new Date(now.getTime() - 30 * 24 * 3600 * 1000);
+      const thirtyDaysAgo = new Date(startOfToday.getTime() - 29 * 24 * 3600 * 1000);
       return {
         fromDate: thirtyDaysAgo.toISOString(),
         toDate: endOfToday.toISOString(),
@@ -215,10 +215,12 @@ export const AgentReportScreen: React.FC = () => {
         }
       }
 
-      myStats.calls = Math.max(myStats.calls, localCalls);
-      myStats.connected = Math.max(myStats.connected, localConnected);
-      myStats.notConnected = Math.max(myStats.notConnected, localNotConnected);
-      myStats.totalDurationSeconds = Math.max(myStats.totalDurationSeconds, localDuration);
+      if (myStats.calls === 0) {
+        myStats.calls = localCalls;
+        myStats.connected = localConnected;
+        myStats.notConnected = localNotConnected;
+        myStats.totalDurationSeconds = localDuration;
+      }
       myStats.avgDurationSeconds =
         myStats.connected > 0 ? Math.round(myStats.totalDurationSeconds / myStats.connected) : 0;
 
@@ -246,24 +248,27 @@ export const AgentReportScreen: React.FC = () => {
       });
     }
 
-    // Merge remote report stats
+    // Populate remote report stats from authoritative backend
     for (const rem of remoteAgents) {
       const existing = statsMap.get(rem.userId);
       if (existing) {
-        existing.calls = Math.max(existing.calls, rem.calls);
-        existing.connected = Math.max(existing.connected, rem.connected);
-        existing.notConnected = Math.max(existing.notConnected, rem.notConnected);
-        existing.totalDurationSeconds = Math.max(existing.totalDurationSeconds, rem.totalDurationSeconds);
+        existing.calls = rem.calls;
+        existing.connected = rem.connected;
+        existing.notConnected = rem.notConnected;
+        existing.totalDurationSeconds = rem.totalDurationSeconds;
         existing.avgDurationSeconds = rem.avgDurationSeconds;
       } else {
         statsMap.set(rem.userId, { ...rem });
       }
     }
 
-    // Merge local activities for zero-latency updates (deduplicated by _id)
+    // Merge only pending/unsynced local activities for zero-latency updates
     const allLocalActivities = getAllActivities();
     for (const act of allLocalActivities) {
       if (!act.createdAt) continue;
+      const isPending = (act as any).isPendingSync || (act._id && String(act._id).startsWith('act-local-'));
+      if (!isPending) continue;
+
       const actTime = new Date(act.createdAt).getTime();
 
       // Check period bounds
@@ -283,10 +288,18 @@ export const AgentReportScreen: React.FC = () => {
       );
 
       if (matchedAgent) {
+        matchedAgent.calls += 1;
         const dur = act.durationSeconds || 0;
-        if (dur > 0 && matchedAgent.totalDurationSeconds === 0) {
+        if (dur > 0 || act.connected) {
+          matchedAgent.connected += 1;
           matchedAgent.totalDurationSeconds += dur;
+        } else {
+          matchedAgent.notConnected += 1;
         }
+        matchedAgent.avgDurationSeconds =
+          matchedAgent.connected > 0
+            ? Math.round(matchedAgent.totalDurationSeconds / matchedAgent.connected)
+            : 0;
       }
     }
 
