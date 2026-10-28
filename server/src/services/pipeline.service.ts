@@ -68,6 +68,25 @@ export class PipelineService {
         throw new AppError('Stage names must be unique inside a pipeline', 400);
       }
 
+      // Check if any removed stage contains active leads
+      const newStageNames = new Set(updates.stages.map((s) => s.name.trim()));
+      const removedStages = pipeline.stages
+        .map((s) => s.name.trim())
+        .filter((oldName) => !newStageNames.has(oldName));
+
+      if (removedStages.length > 0 && mongoose.modelNames().includes('Lead')) {
+        const Lead = mongoose.model('Lead');
+        const activeLeadsCount = await Lead.countDocuments({
+          stage: { $in: removedStages },
+        });
+        if (activeLeadsCount > 0) {
+          throw new AppError(
+            `Cannot remove stage(s) [${removedStages.join(', ')}] because ${activeLeadsCount} lead(s) currently belong to these stage(s). Reassign them first.`,
+            400,
+          );
+        }
+      }
+
       pipeline.stages = updates.stages.map((s, index) => ({
         ...(s._id ? { _id: new Types.ObjectId(s._id) } : {}),
         name: s.name.trim(),
@@ -93,6 +112,15 @@ export class PipelineService {
       const inUseCount = await Campaign.countDocuments({ pipelineId: id });
       if (inUseCount > 0) {
         throw new AppError('Cannot delete pipeline because it is in use by one or more campaigns', 400);
+      }
+    }
+
+    // Block deletion if any lead is associated with this pipeline
+    if (mongoose.modelNames().includes('Lead')) {
+      const Lead = mongoose.model('Lead');
+      const leadsInUseCount = await Lead.countDocuments({ pipelineId: id });
+      if (leadsInUseCount > 0) {
+        throw new AppError('Cannot delete pipeline because it is in use by one or more active leads', 400);
       }
     }
 

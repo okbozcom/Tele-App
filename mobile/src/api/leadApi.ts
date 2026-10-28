@@ -494,6 +494,24 @@ export const updateRetryRule = async (
 };
 
 /**
+ * Updates retry rules in bulk or upserts them by reason.
+ */
+export const updateRetryRulesBulk = async (
+  rules: Array<{
+    reason: string;
+    enabled: boolean;
+    steps: Array<{ delayMinutes: number }>;
+  }>,
+): Promise<{ retryRules: RetryRule[] }> => {
+  const response = await apiClient.patch<{ rules?: RetryRule[]; retryRules?: RetryRule[] }>(
+    '/api/retry-rules',
+    rules,
+  );
+  const updated = response.data.rules || response.data.retryRules || [];
+  return { retryRules: updated };
+};
+
+/**
  * Reassigns a lead to a specific active agent.
  */
 export const reassignLead = async (

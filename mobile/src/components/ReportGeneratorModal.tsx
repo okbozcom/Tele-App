@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import {
   View,
   Text,
@@ -130,6 +130,16 @@ export const ReportGeneratorModal: React.FC<ReportGeneratorModalProps> = ({
   );
   const [isGenerating, setIsGenerating] = useState(false);
 
+  // Midnight tracker: re-evaluates date boundaries across midnight
+  const [currentDateKey, setCurrentDateKey] = useState(() => new Date().toDateString());
+  useEffect(() => {
+    const interval = setInterval(() => {
+      const todayStr = new Date().toDateString();
+      setCurrentDateKey((prev) => (prev !== todayStr ? todayStr : prev));
+    }, 60000);
+    return () => clearInterval(interval);
+  }, []);
+
   // Filter available report types based on current user's role
   const allowedReportTypes = useMemo(() => {
     return REPORT_TYPE_OPTIONS.filter((opt) => opt.forRoles.includes(userRole));
@@ -158,7 +168,7 @@ export const ReportGeneratorModal: React.FC<ReportGeneratorModalProps> = ({
       };
     }
     if (period === 'WEEK') {
-      const sevenDaysAgo = new Date(now.getTime() - 7 * 24 * 3600 * 1000);
+      const sevenDaysAgo = new Date(startOfToday.getTime() - 6 * 24 * 3600 * 1000);
       return {
         fromDate: sevenDaysAgo.toISOString(),
         toDate: endOfToday.toISOString(),
@@ -166,7 +176,7 @@ export const ReportGeneratorModal: React.FC<ReportGeneratorModalProps> = ({
       };
     }
     if (period === 'MONTH') {
-      const thirtyDaysAgo = new Date(now.getTime() - 30 * 24 * 3600 * 1000);
+      const thirtyDaysAgo = new Date(startOfToday.getTime() - 29 * 24 * 3600 * 1000);
       return {
         fromDate: thirtyDaysAgo.toISOString(),
         toDate: endOfToday.toISOString(),
@@ -178,7 +188,7 @@ export const ReportGeneratorModal: React.FC<ReportGeneratorModalProps> = ({
       toDate: undefined,
       periodLabel: 'All Time',
     };
-  }, [period]);
+  }, [period, currentDateKey]);
 
   // Handle generating and exporting report
   const handleGenerateReport = async () => {
