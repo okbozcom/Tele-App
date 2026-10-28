@@ -14,7 +14,7 @@ import {
 } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   Search,
   X,
@@ -45,6 +45,7 @@ import { CrmShell } from '../components/CrmShell';
 import { LeadQuickModal } from '../components/LeadQuickModal';
 import { WhatsAppTemplateModal } from '../components/WhatsAppTemplateModal';
 import { formatDisplayPhone } from '../utils/phoneUtils';
+import { adjustForCallingHours } from '../utils/callingHours';
 import { toast } from '../store/toastStore';
 
 type NavigationProp = NativeStackNavigationProp<RootStackParamList>;
@@ -54,6 +55,7 @@ interface FollowUpItem {
   _id: string;
   name: string;
   phone: string;
+  campaignId?: string;
   campaignName: string;
   attempts: number;
   assignedAgent: string;
@@ -293,12 +295,20 @@ export const FollowUpsScreen: React.FC = () => {
   const navigation = useNavigation<NavigationProp>();
   const { user } = useAuthStore();
   const { width } = useWindowDimensions();
+  const queryClient = useQueryClient();
 
   const [activeTab, setActiveTab] = useState<TabCategory>('Today');
   const [searchQuery, setSearchQuery] = useState('');
   const [quickModalLead, setQuickModalLead] = useState<Lead | null>(null);
   const [whatsAppModalVisible, setWhatsAppModalVisible] = useState(false);
   const [whatsAppTarget, setWhatsAppTarget] = useState<{ name: string; phone: string } | null>(null);
+  const [tick, setTick] = useState(0);
+
+  // Live timer tick: update overdue and countdown labels every minute
+  useEffect(() => {
+    const timer = setInterval(() => setTick((t) => t + 1), 60000);
+    return () => clearInterval(timer);
+  }, []);
 
   // Calling & Telephony Tracking
   const callStartTimeRef = useRef<number | null>(null);
@@ -314,11 +324,40 @@ export const FollowUpsScreen: React.FC = () => {
     queryFn: () => fetchMyLeads({ type: 'FOLLOW_UP', limit: 5000 }),
   });
 
+  const handleOpenLead = useCallback((item: FollowUpItem) => {
+    const syntheticLead: Lead = {
+      _id: item._id,
+      campaignId: item.campaignId || 'default-camp',
+      name: item.name || 'Lead Contact',
+      phone: item.phone,
+      source: 'OUTREACH',
+      stage: item.status,
+      tag: item.temperature,
+      temperature: item.temperature,
+      status: 'OPEN',
+      attemptCount: item.attempts,
+      nextFollowUpAt: item.rawDate.toISOString(),
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+      customProperties: { campaign: item.campaignName, lastRemark: item.lastRemark || '' },
+    };
+    setQuickModalLead(syntheticLead);
+  }, []);
+
   // Native Calling Handler (NeoDove Standard)
   const handleDirectCall = useCallback(async (item: FollowUpItem) => {
+    if (isCallingRef.current || callSession.isCallInProgress()) {
+      toast.warning('A call is already in progress');
+      return;
+    }
+    isCallingRef.current = true;
+    setTimeout(() => {
+      isCallingRef.current = false;
+    }, 2000);
+
     const fullLead: Lead = {
       _id: item._id,
-      campaignId: 'default-camp',
+      campaignId: item.campaignId || 'default-camp',
       name: item.name || 'Lead Contact',
       phone: item.phone,
       source: 'FOLLOW_UP',
@@ -346,12 +385,25 @@ export const FollowUpsScreen: React.FC = () => {
         callerSource: 'FOLLOW_UPS',
         onCallComplete: () => {
           refetch();
+          queryClient.invalidateQueries({ queryKey: ['followUps'] });
+          queryClient.invalidateQueries({ queryKey: ['myLeadsList'] });
+          queryClient.invalidateQueries({ queryKey: ['homeDashboard'] });
         },
       });
     } catch {
-      Alert.alert('Unable to dial', `Could not open phone dialer for ${item.phone}`);
+      Alert.alert(
+        'Unable to dial',
+        `Could not open phone dialer for ${item.phone}. Would you like to record an outcome manually?`,
+        [
+          { text: 'Cancel', style: 'cancel' },
+          {
+            text: 'Update Outcome',
+            onPress: () => handleOpenLead(item),
+          },
+        ]
+      );
     }
-  }, [refetch]);
+  }, [refetch, queryClient, handleOpenLead]);
 
   // Direct WhatsApp Handler
   const handleOpenWhatsApp = useCallback((item: FollowUpItem) => {
@@ -362,7 +414,7 @@ export const FollowUpsScreen: React.FC = () => {
     setWhatsAppModalVisible(true);
   }, []);
 
-  // Quick Snooze Handler (Snooze +2 Hours or Tomorrow 10 AM)
+  // Quick Snooze Handler (Snooze +2 Hours or Tomorrow 10 AM, adjusted for Calling Hours 09:00 - 20:00 IST)
   const handleQuickSnooze = useCallback((item: FollowUpItem) => {
     Alert.alert(
       'Snooze Follow-up',
@@ -372,7 +424,8 @@ export const FollowUpsScreen: React.FC = () => {
         {
           text: '+2 Hours',
           onPress: async () => {
-            const nextTime = new Date(Date.now() + 2 * 60 * 60 * 1000).toISOString();
+            const baseDate = new Date(Date.now() + 2 * 60 * 60 * 1000);
+            const nextTime = adjustForCallingHours(baseDate).toISOString();
             try {
               await disposeLead(item._id, {
                 connected: false,
@@ -382,24 +435,29 @@ export const FollowUpsScreen: React.FC = () => {
                 followUpAt: nextTime,
                 durationSeconds: 0,
               });
-            } catch {}
-            addActivity(item._id, {
-              phone: item.phone,
-              agentName: user?.name || 'Agent',
-              agentId: user?._id,
-              connected: false,
-              type: 'UPDATE',
-              stage: 'Follow Up',
-              remark: 'Follow-up snoozed +2 hours',
-              followUpAt: nextTime,
-              durationSeconds: 0,
-            });
-            notificationService.scheduleFollowUpReminder(
-              { _id: item._id, name: item.name, phone: item.phone } as any,
-              nextTime,
-            );
-            refetch();
-            toast.success(`Rescheduled ${item.name} for 2 hours later`, 'Snoozed');
+              addActivity(item._id, {
+                phone: item.phone,
+                agentName: user?.name || 'Agent',
+                agentId: user?._id,
+                connected: false,
+                type: 'UPDATE',
+                stage: 'Follow Up',
+                remark: 'Follow-up snoozed +2 hours',
+                followUpAt: nextTime,
+                durationSeconds: 0,
+              });
+              notificationService.scheduleFollowUpReminder(
+                { _id: item._id, name: item.name, phone: item.phone } as any,
+                nextTime,
+              );
+              queryClient.invalidateQueries({ queryKey: ['followUps'] });
+              queryClient.invalidateQueries({ queryKey: ['myLeadsList'] });
+              queryClient.invalidateQueries({ queryKey: ['homeDashboard'] });
+              refetch();
+              toast.success(`Rescheduled ${item.name} for 2 hours later`, 'Snoozed');
+            } catch (err: any) {
+              Alert.alert('Update Failed', err?.message || 'Could not reschedule follow-up. Please check your connection.');
+            }
           },
         },
         {
@@ -408,7 +466,7 @@ export const FollowUpsScreen: React.FC = () => {
             const d = new Date();
             d.setDate(d.getDate() + 1);
             d.setHours(10, 0, 0, 0);
-            const nextTime = d.toISOString();
+            const nextTime = adjustForCallingHours(d).toISOString();
             try {
               await disposeLead(item._id, {
                 connected: false,
@@ -418,49 +476,34 @@ export const FollowUpsScreen: React.FC = () => {
                 followUpAt: nextTime,
                 durationSeconds: 0,
               });
-            } catch {}
-            addActivity(item._id, {
-              phone: item.phone,
-              agentName: user?.name || 'Agent',
-              agentId: user?._id,
-              connected: false,
-              type: 'UPDATE',
-              stage: 'Follow Up',
-              remark: 'Follow-up snoozed to Tomorrow 10 AM',
-              followUpAt: nextTime,
-              durationSeconds: 0,
-            });
-            notificationService.scheduleFollowUpReminder(
-              { _id: item._id, name: item.name, phone: item.phone } as any,
-              nextTime,
-            );
-            refetch();
-            toast.success(`Rescheduled ${item.name} for Tomorrow 10 AM`, 'Snoozed');
+              addActivity(item._id, {
+                phone: item.phone,
+                agentName: user?.name || 'Agent',
+                agentId: user?._id,
+                connected: false,
+                type: 'UPDATE',
+                stage: 'Follow Up',
+                remark: 'Follow-up snoozed to Tomorrow 10 AM',
+                followUpAt: nextTime,
+                durationSeconds: 0,
+              });
+              notificationService.scheduleFollowUpReminder(
+                { _id: item._id, name: item.name, phone: item.phone } as any,
+                nextTime,
+              );
+              queryClient.invalidateQueries({ queryKey: ['followUps'] });
+              queryClient.invalidateQueries({ queryKey: ['myLeadsList'] });
+              queryClient.invalidateQueries({ queryKey: ['homeDashboard'] });
+              refetch();
+              toast.success(`Rescheduled ${item.name} for Tomorrow 10 AM`, 'Snoozed');
+            } catch (err: any) {
+              Alert.alert('Update Failed', err?.message || 'Could not reschedule follow-up. Please check your connection.');
+            }
           },
         },
       ],
     );
-  }, [addActivity, refetch, user]);
-
-  const handleOpenLead = useCallback((item: FollowUpItem) => {
-    const syntheticLead: Lead = {
-      _id: item._id,
-      campaignId: 'default-camp',
-      name: item.name || 'Lead Contact',
-      phone: item.phone,
-      source: 'OUTREACH',
-      stage: item.status,
-      tag: item.temperature,
-      temperature: item.temperature,
-      status: 'OPEN',
-      attemptCount: item.attempts,
-      nextFollowUpAt: item.rawDate.toISOString(),
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
-      customProperties: { campaign: item.campaignName, lastRemark: item.lastRemark || '' },
-    };
-    setQuickModalLead(syntheticLead);
-  }, []);
+  }, [addActivity, queryClient, refetch, user]);
 
   // Extract real follow-ups from backend leads and local follow-ups
   const combinedItems: FollowUpItem[] = useMemo(() => {
@@ -477,7 +520,8 @@ export const FollowUpsScreen: React.FC = () => {
       if (!l._id || seenIds.has(l._id)) continue;
       seenIds.add(l._id);
 
-      const camp = typeof l.campaign === 'object' && l.campaign ? l.campaign.name : 'Campaign';
+      const campId = l.campaignId || (typeof l.campaign === 'object' && l.campaign ? (l.campaign as any)._id : undefined);
+      const camp = typeof l.campaign === 'object' && l.campaign ? l.campaign.name : (l.customProperties?.campaign || 'Campaign');
       const dateObj = l.nextFollowUpAt ? new Date(l.nextFollowUpAt) : new Date();
       const fTime = dateObj.getTime();
 
@@ -497,6 +541,7 @@ export const FollowUpsScreen: React.FC = () => {
         _id: l._id,
         name: l.name || 'Lead Contact',
         phone: l.phone,
+        campaignId: campId,
         campaignName: camp,
         attempts: l.attemptCount || 1,
         assignedAgent: user?.name || 'You',
@@ -531,6 +576,7 @@ export const FollowUpsScreen: React.FC = () => {
             _id: act.leadId,
             name: act.customerName || 'Lead Contact',
             phone: act.phone || '',
+            campaignId: act.campaignId,
             campaignName: 'Assigned Leads',
             attempts: 1,
             assignedAgent: user?.name || 'You',
@@ -547,7 +593,7 @@ export const FollowUpsScreen: React.FC = () => {
     }
 
     return list.sort((a, b) => a.rawDate.getTime() - b.rawDate.getTime());
-  }, [realFollowupsData, user?._id, user?.name]);
+  }, [realFollowupsData, user?._id, user?.name, tick]);
 
   // Tab counts
   const overdueCount = useMemo(() => combinedItems.filter((i) => i.category === 'Overdue').length, [combinedItems]);
