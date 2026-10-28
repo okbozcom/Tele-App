@@ -97,6 +97,18 @@ const formatDuration = (seconds?: number, connected?: boolean) => {
 // ======================================================================
 // MEMOIZED NEODOVE CALL LOG CARD (MATCHING IMAGE 2 EXACTLY)
 // ======================================================================
+// Canonical incoming call detector:
+// An activity is INCOMING only if direction is explicitly INCOMING, or prefixed with 'inc-'.
+// Outgoing calls (even if unanswered or marked 'Missed Call') are NEVER classified as incoming.
+export const isActivityIncoming = (act: Activity): boolean => {
+  const dir = ((act as any).direction || '').toUpperCase();
+  if (dir === 'OUTGOING') return false;
+  if (dir === 'INCOMING') return true;
+  if ((act as any).callType === 'INCOMING') return true;
+  if (act._id && act._id.startsWith('inc-')) return true;
+  return act.stage === 'Missed Call' && dir !== 'OUTGOING';
+};
+
 interface CallCardProps {
   act: Activity;
   campaignName: string;
@@ -112,11 +124,7 @@ const CallHistoryCard = React.memo<CallCardProps>(
       act.customerName ||
       (act.phone ? `Customer (${formatDisplayPhone(act.phone)})` : 'Lead Contact');
     const isConnected = Boolean(act.connected);
-    const isIncoming =
-      (act as any).direction === 'INCOMING' ||
-      (act as any).callType === 'INCOMING' ||
-      act._id.startsWith('inc-') ||
-      act.stage === 'Missed Call';
+    const isIncoming = isActivityIncoming(act);
     const isMissed = act.stage === 'Missed Call' || (!isConnected && isIncoming);
 
     return (
@@ -125,7 +133,7 @@ const CallHistoryCard = React.memo<CallCardProps>(
         onPress={() => onOpenLead(act)}
         activeOpacity={0.88}
       >
-        {/* Main Content Row: Info Details on Left + Quick Call Button on Right */}
+        {/* Main Content Row: Info Details on Left + Quick Action Buttons on Right */}
         <View style={styles.logCardTopRow}>
           <View style={styles.logFieldsCol}>
             {/* Name */}
@@ -168,18 +176,47 @@ const CallHistoryCard = React.memo<CallCardProps>(
             </View>
           </View>
 
-          {/* Quick Call Button (Top Right as requested) */}
-          <TouchableOpacity
-            style={styles.topRightCallBtn}
-            onPress={(e) => {
-              e.stopPropagation();
-              onCallAgain(act);
-            }}
-            activeOpacity={0.8}
-            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-          >
-            <Phone size={18} color="#FFFFFF" strokeWidth={2.5} />
-          </TouchableOpacity>
+          {/* Quick Action Buttons (Call, WhatsApp, Tag Lead) */}
+          <View style={styles.topRightActionsCol}>
+            <TouchableOpacity
+              style={styles.actionCallBtn}
+              onPress={(e) => {
+                e.stopPropagation();
+                onCallAgain(act);
+              }}
+              activeOpacity={0.8}
+              hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}
+              accessibilityLabel="Call customer"
+            >
+              <Phone size={15} color="#FFFFFF" strokeWidth={2.5} />
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={styles.actionWhatsAppBtn}
+              onPress={(e) => {
+                e.stopPropagation();
+                onOpenWhatsApp(act);
+              }}
+              activeOpacity={0.8}
+              hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}
+              accessibilityLabel="Open WhatsApp"
+            >
+              <MessageCircle size={15} color="#FFFFFF" strokeWidth={2.5} />
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={styles.actionTagBtn}
+              onPress={(e) => {
+                e.stopPropagation();
+                onTagLead(act);
+              }}
+              activeOpacity={0.8}
+              hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}
+              accessibilityLabel="Tag lead to manager"
+            >
+              <BookmarkCheck size={15} color="#4F46E5" strokeWidth={2.3} />
+            </TouchableOpacity>
+          </View>
         </View>
 
         {/* Status / Duration / Remark pill strip */}
@@ -340,6 +377,20 @@ export const CallHistoryScreen: React.FC = () => {
   const [quickLead, setQuickLead] = useState<Lead | null>(null);
   const [isPullRefreshing, setIsPullRefreshing] = useState(false);
 
+  // Dynamic date tracker to re-evaluate boundaries across midnight
+  const [currentDateKey, setCurrentDateKey] = useState(() => new Date().toDateString());
+
+  useEffect(() => {
+    // Monitor midnight transition every 60s
+    const timer = setInterval(() => {
+      const todayStr = new Date().toDateString();
+      if (todayStr !== currentDateKey) {
+        setCurrentDateKey(todayStr);
+      }
+    }, 60000);
+    return () => clearInterval(timer);
+  }, [currentDateKey]);
+
   useEffect(() => {
     incomingCallSyncService.syncIncomingCalls().catch(() => {});
     loadHistory();
@@ -351,6 +402,7 @@ export const CallHistoryScreen: React.FC = () => {
       await incomingCallSyncService.syncIncomingCalls().catch(() => {});
       loadHistory();
       await refetchServer();
+      setCurrentDateKey(new Date().toDateString());
     } finally {
       setIsPullRefreshing(false);
     }
@@ -381,7 +433,7 @@ export const CallHistoryScreen: React.FC = () => {
     return map;
   }, [campaignData]);
 
-  // Date boundary helpers
+  // Date boundary helpers - dynamically recomputed across midnight
   const { startOfToday, startOfYesterday, endOfYesterday, startOfWeek } = useMemo(() => {
     const now = new Date();
     const today = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
@@ -394,7 +446,7 @@ export const CallHistoryScreen: React.FC = () => {
       endOfYesterday: endYesterday,
       startOfWeek: week,
     };
-  }, []);
+  }, [currentDateKey]);
 
   // Fetch activities from server with date bounds
   const {
@@ -402,7 +454,7 @@ export const CallHistoryScreen: React.FC = () => {
     isLoading: isLoadingServer,
     refetch: refetchServer,
   } = useQuery({
-    queryKey: ['myCallActivities', user?._id, dateFilter, selectedCustomDate],
+    queryKey: ['myCallActivities', user?._id, dateFilter, selectedCustomDate, currentDateKey],
     queryFn: () => {
       let from: string | undefined;
       let to: string | undefined;
@@ -418,12 +470,16 @@ export const CallHistoryScreen: React.FC = () => {
         from = new Date(cd.getFullYear(), cd.getMonth(), cd.getDate(), 0, 0, 0).toISOString();
         to = new Date(cd.getFullYear(), cd.getMonth(), cd.getDate(), 23, 59, 59, 999).toISOString();
       }
-      return fetchUserActivities({ from, to });
+      return fetchUserActivities({
+        userId: isAgent && user?._id ? user._id : undefined,
+        from,
+        to,
+      });
     },
     staleTime: 1000 * 15,
   });
 
-  // Combined activities (Server DB + Local Store), fully deduplicated by phone + 5min window
+  // Combined activities (Server DB + Local Store), fully deduplicated
   const userActivities = useMemo(() => {
     const cleanId = (user?._id || '').toLowerCase();
     const cleanName = (user?.name || '').toLowerCase();
@@ -449,7 +505,7 @@ export const CallHistoryScreen: React.FC = () => {
       (a) => a && a._id && a.type === 'CALL' && matchesMe(a),
     );
 
-    // Merge server activities (priority) and local activities with 5-min deduplication
+    // Merge server activities (priority) and local activities with deduplication
     const combined = [...serverMatched, ...local];
     return deduplicateActivities(combined);
   }, [serverActivities, getAllActivities, user, isAgent]);
@@ -493,12 +549,7 @@ export const CallHistoryScreen: React.FC = () => {
     let outCount = 0;
     let inCount = 0;
     for (const a of dateAndCampaignFiltered) {
-      const isInc =
-        (a as any).direction === 'INCOMING' ||
-        (a as any).callType === 'INCOMING' ||
-        a._id.startsWith('inc-') ||
-        a.stage === 'Missed Call';
-      if (isInc) inCount++;
+      if (isActivityIncoming(a)) inCount++;
       else outCount++;
     }
     return {
@@ -511,20 +562,17 @@ export const CallHistoryScreen: React.FC = () => {
   // Final filtered list including Direction, Stage, and Search Query
   const filteredActivities = useMemo(() => {
     return dateAndCampaignFiltered.filter((act) => {
-      // Direction filter
-      const isInc =
-        (act as any).direction === 'INCOMING' ||
-        (act as any).callType === 'INCOMING' ||
-        act._id.startsWith('inc-') ||
-        act.stage === 'Missed Call';
+      // Direction filter using canonical helper
+      const isInc = isActivityIncoming(act);
       if (directionTab === 'OUTGOING' && isInc) return false;
       if (directionTab === 'INCOMING' && !isInc) return false;
 
-      // Stage filter
+      // Safe stage filter (defensive null check prevents crash)
+      const stageLower = (act.stage ?? '').toLowerCase();
       if (stageFilter === 'CONNECTED' && !act.connected) return false;
       if (stageFilter === 'NOT_CONNECTED' && act.connected) return false;
-      if (stageFilter === 'INTERESTED' && !act.stage.toLowerCase().includes('interested')) return false;
-      if (stageFilter === 'FOLLOW_UP' && !act.stage.toLowerCase().includes('follow')) return false;
+      if (stageFilter === 'INTERESTED' && !stageLower.includes('interested')) return false;
+      if (stageFilter === 'FOLLOW_UP' && !stageLower.includes('follow')) return false;
 
       // Search Query
       if (searchQuery.trim()) {
@@ -532,7 +580,7 @@ export const CallHistoryScreen: React.FC = () => {
         const nameMatch = (act.customerName || '').toLowerCase().includes(q);
         const phoneMatch = (act.phone || '').toLowerCase().includes(q);
         const remarkMatch = (act.remark || '').toLowerCase().includes(q);
-        const stageMatch = (act.stage || '').toLowerCase().includes(q);
+        const stageMatch = stageLower.includes(q);
         return nameMatch || phoneMatch || remarkMatch || stageMatch;
       }
 
@@ -590,8 +638,21 @@ export const CallHistoryScreen: React.FC = () => {
     };
   }, [filteredActivities]);
 
-  // Redial handler using centralized callSession
+  // Helper to resolve accurate total call attempts for a phone number
+  const getAttemptCountForPhone = (phone?: string) => {
+    if (!phone) return 1;
+    const clean = normalizePhoneDigits(phone);
+    if (!clean) return 1;
+    const count = userActivities.filter((a) => normalizePhoneDigits(a.phone || '') === clean).length;
+    return Math.max(count, 1);
+  };
+
+  // Redial handler using centralized callSession with double-call protection
   const handleCallAgain = (act: Activity) => {
+    if (isCallingRef.current || callSession.isCallInProgress()) {
+      toast.warning('A call is already in progress');
+      return;
+    }
     if (!act.phone) {
       Alert.alert('No Number', 'Customer phone number is unavailable.');
       return;
@@ -599,8 +660,12 @@ export const CallHistoryScreen: React.FC = () => {
 
     toast.info(`Dialing ${act.customerName || act.phone}...`, 'Calling');
 
+    const cleanDigits = normalizePhoneDigits(act.phone);
+    const deterministicId = act.leadId || `lead-phone-${cleanDigits || act._id}`;
+    const realAttempts = getAttemptCountForPhone(act.phone);
+
     const syntheticLead: Lead = {
-      _id: act.leadId || `lead-${act._id}`,
+      _id: deterministicId,
       name: act.customerName || 'Customer',
       phone: act.phone,
       campaignId: act.campaignId || 'default-camp',
@@ -608,10 +673,15 @@ export const CallHistoryScreen: React.FC = () => {
       source: 'DIRECT_CALL',
       customProperties: {},
       status: 'OPEN',
-      attemptCount: 1,
-      createdAt: '',
-      updatedAt: '',
+      attemptCount: realAttempts,
+      createdAt: act.createdAt || new Date().toISOString(),
+      updatedAt: act.updatedAt || new Date().toISOString(),
     };
+
+    isCallingRef.current = true;
+    setTimeout(() => {
+      isCallingRef.current = false;
+    }, 2000);
 
     callSession
       .startCall(syntheticLead, {
@@ -635,8 +705,12 @@ export const CallHistoryScreen: React.FC = () => {
   };
 
   const handleOpenLead = (act: Activity) => {
+    const cleanDigits = normalizePhoneDigits(act.phone || '');
+    const deterministicId = act.leadId || `lead-phone-${cleanDigits || act._id}`;
+    const realAttempts = getAttemptCountForPhone(act.phone);
+
     const syntheticLead: Lead = {
-      _id: act.leadId || `lead-${Date.now()}`,
+      _id: deterministicId,
       campaignId: act.campaignId || '',
       name: act.customerName || 'Customer',
       phone: act.phone || '',
@@ -645,11 +719,11 @@ export const CallHistoryScreen: React.FC = () => {
       tag: act.tag || act.temperature || 'WARM',
       temperature: (act.temperature || act.tag || 'WARM') as CustomerTemperature,
       status: 'OPEN',
-      attemptCount: 1,
+      attemptCount: realAttempts,
       customProperties: {},
       nextFollowUpAt: act.followUpAt || undefined,
-      createdAt: act.createdAt,
-      updatedAt: act.updatedAt,
+      createdAt: act.createdAt || new Date().toISOString(),
+      updatedAt: act.updatedAt || new Date().toISOString(),
     };
     setQuickLead(syntheticLead);
   };
@@ -771,10 +845,21 @@ export const CallHistoryScreen: React.FC = () => {
         <TouchableOpacity
           style={styles.iconRefreshBtn}
           onPress={async () => {
-            await incomingCallSyncService.syncIncomingCalls().catch(() => {});
-            loadHistory();
-            refetchServer();
-            toast.info('Refreshed call logs');
+            try {
+              toast.info('Syncing call logs...', 'Refresh');
+              await incomingCallSyncService.syncIncomingCalls();
+              loadHistory();
+              const res = await refetchServer();
+              setCurrentDateKey(new Date().toDateString());
+              if (res.isError) {
+                toast.warning('Unable to sync all server calls');
+              } else {
+                toast.success('Call logs refreshed');
+              }
+            } catch (err) {
+              console.warn('[CallHistory] Refresh error:', err);
+              toast.error('Sync failed. Please check connection');
+            }
           }}
           activeOpacity={0.7}
         >
@@ -1386,7 +1471,50 @@ const styles = StyleSheet.create({
     fontWeight: '500',
   },
 
-  // Top Right Quick Call Button
+  // Top Right Quick Action Buttons
+  topRightActionsCol: {
+    flexDirection: 'column',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 7,
+    marginLeft: 6,
+  },
+  actionCallBtn: {
+    width: 35,
+    height: 35,
+    borderRadius: 17.5,
+    backgroundColor: '#0F9D58',
+    alignItems: 'center',
+    justifyContent: 'center',
+    shadowColor: '#0F9D58',
+    shadowOpacity: 0.35,
+    shadowRadius: 4,
+    shadowOffset: { width: 0, height: 2 },
+    elevation: 3,
+  },
+  actionWhatsAppBtn: {
+    width: 35,
+    height: 35,
+    borderRadius: 17.5,
+    backgroundColor: '#25D366',
+    alignItems: 'center',
+    justifyContent: 'center',
+    shadowColor: '#25D366',
+    shadowOpacity: 0.35,
+    shadowRadius: 4,
+    shadowOffset: { width: 0, height: 2 },
+    elevation: 3,
+  },
+  actionTagBtn: {
+    width: 35,
+    height: 35,
+    borderRadius: 17.5,
+    backgroundColor: '#EEF2FF',
+    borderWidth: 1,
+    borderColor: '#C7D2FE',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
   topRightCallBtn: {
     width: 42,
     height: 42,

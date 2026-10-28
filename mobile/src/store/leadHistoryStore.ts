@@ -31,13 +31,26 @@ export const deduplicateActivities = (activities: Activity[]): Activity[] => {
 
     // Stable Identity Match (P3.1): Match on idempotencyKey or callLogId first
     const existingIndex = result.findIndex((r) => {
+      // 1. Direct same ID match
+      if (act._id === r._id) return true;
+
+      // 2. Exact match on idempotencyKey or callLogId
       if (act.idempotencyKey && r.idempotencyKey && act.idempotencyKey === r.idempotencyKey) {
         return true;
       }
       if (act.callLogId && r.callLogId && act.callLogId === r.callLogId) {
         return true;
       }
-      // If neither has stable ID, fallback to phone + exact timestamp (within 90s) and direction
+
+      // CRITICAL FIX: If BOTH are distinct persistent MongoDB server activities,
+      // they represent distinct calls saved in the database. Never collapse them!
+      const isActServer = !act._id.startsWith('act-') && !act._id.startsWith('inc-') && act._id.length === 24;
+      const isRServer = !r._id.startsWith('act-') && !r._id.startsWith('inc-') && r._id.length === 24;
+      if (isActServer && isRServer && act._id !== r._id) {
+        return false;
+      }
+
+      // If one is local optimistic and one is server, or both are local, fallback to phone + exact timestamp (within 90s) and direction
       const rPhone = normalizePhone(r.phone);
       if (!phone || !rPhone || phone !== rPhone) return false;
       const actDir = (act as any).direction || 'OUTGOING';
