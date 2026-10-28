@@ -53,6 +53,13 @@ export const UploadLeadsScreen: React.FC = () => {
     isManager && user?.branch ? user.branch : 'ALL',
   );
 
+  // Synchronize branch selection when user profile loads asynchronously
+  React.useEffect(() => {
+    if (isManager && user?.branch) {
+      setSelectedBranch(user.branch);
+    }
+  }, [isManager, user?.branch]);
+
   const [selectedCampaignName, setSelectedCampaignName] = useState('');
   const [selectedCampaignId, setSelectedCampaignId] = useState<string>('');
   const [showCampaignDropdown, setShowCampaignDropdown] = useState(false);
@@ -156,6 +163,11 @@ export const UploadLeadsScreen: React.FC = () => {
     return `Round Robin (${branchAgents.length} Agents)`;
   }, [strategy, selectedAgent, branchManager, branchAgents, selectedBranch]);
 
+  // Validation flags for upload eligibility
+  const isRoundRobinBlocked = strategy === 'ROUND_ROBIN' && branchAgents.length === 0;
+  const isSpecificAgentBlocked = strategy === 'SPECIFIC_AGENT' && !selectedAgentId;
+  const isManagerBlocked = strategy === 'MANAGER' && !branchManager;
+
   React.useEffect(() => {
     if (filteredCampaigns.length > 0) {
       const match = filteredCampaigns.find((c) => c._id === selectedCampaignId);
@@ -169,7 +181,7 @@ export const UploadLeadsScreen: React.FC = () => {
     }
   }, [filteredCampaigns, selectedCampaignId]);
 
-  // Handle Document Picker
+  // Handle Document Picker with CSV validation
   const handlePickDocument = async () => {
     try {
       const res = await DocumentPicker.getDocumentAsync({
@@ -179,6 +191,27 @@ export const UploadLeadsScreen: React.FC = () => {
 
       if (!res.canceled && res.assets && res.assets.length > 0) {
         const asset = res.assets[0];
+        const lowerName = (asset.name || '').toLowerCase();
+        if (!lowerName.endsWith('.csv') && !lowerName.endsWith('.txt')) {
+          toast.error('Only CSV (.csv) files are supported for lead imports.', 'Invalid File Type');
+          return;
+        }
+
+        // Pre-validate CSV headers on web if file object available
+        if ((asset as any).file) {
+          try {
+            const previewText = await (asset as any).file.slice(0, 4096).text();
+            const firstLine = previewText.split(/\r?\n/)[0]?.toLowerCase() || '';
+            const hasPhone = firstLine.includes('phone') || firstLine.includes('mobile') || firstLine.includes('contact');
+            const hasName = firstLine.includes('name');
+            if (!hasPhone || !hasName) {
+              toast.warning('Warning: CSV headers should include "name" and "phone". Please verify your columns.', 'CSV Format Warning');
+            }
+          } catch {
+            // Non-blocking preview check
+          }
+        }
+
         setPickedFile({
           name: asset.name,
           uri: asset.uri,
@@ -199,6 +232,12 @@ export const UploadLeadsScreen: React.FC = () => {
 
       const formData = new FormData();
       let resolvedTargetId: string | null = null;
+
+      if (strategy === 'ROUND_ROBIN' && branchAgents.length === 0) {
+        throw new Error(
+          `No active telecallers available in ${selectedBranch === 'ALL' ? 'the workspace' : selectedBranch} for Round Robin distribution. Please add telecallers or choose another assignment method.`,
+        );
+      }
 
       if (strategy === 'SPECIFIC_AGENT') {
         if (!selectedAgentId) {
@@ -224,8 +263,15 @@ export const UploadLeadsScreen: React.FC = () => {
       if (Platform.OS === 'web') {
         if (pickedFile.file) {
           formData.append('file', pickedFile.file);
+        } else if (pickedFile.uri) {
+          try {
+            const blob = await (await fetch(pickedFile.uri)).blob();
+            formData.append('file', blob, pickedFile.name);
+          } catch {
+            throw new Error('Unable to read the selected CSV file. Please select the file again.');
+          }
         } else {
-          formData.append('file', new Blob(['name,phone\nRahul,9810000001'], { type: 'text/csv' }), pickedFile.name);
+          throw new Error('Selected CSV file is missing or unreadable. Please choose the file again.');
         }
       } else {
         formData.append('file', {
@@ -248,15 +294,19 @@ export const UploadLeadsScreen: React.FC = () => {
       queryClient.invalidateQueries({ queryKey: ['homeDashboard'] });
       queryClient.invalidateQueries({ queryKey: ['homeUserCalls'] });
       const createdCount = data.created ?? 0;
+      const mergedCount = data.merged ?? 0;
+      const skippedCount = data.skipped ?? 0;
+      const totalImported = createdCount + mergedCount;
+
       setUploadResult({
         created: createdCount,
-        merged: data.merged ?? 0,
-        skipped: data.skipped ?? 0,
+        merged: mergedCount,
+        skipped: skippedCount,
       });
 
       // Show high-priority toast
       toast.success(
-        `Successfully imported ${createdCount} leads into ${selectedCampaignName}!`,
+        `Successfully imported ${totalImported} leads (${createdCount} new, ${mergedCount} merged) into ${selectedCampaignName}!`,
         'CSV Uploaded',
         5000,
       );
@@ -280,7 +330,7 @@ export const UploadLeadsScreen: React.FC = () => {
           targetAgentId: notifTargetId,
           targetAgentName: notifTargetName,
           campaignName: selectedCampaignName,
-          count: createdCount,
+          count: totalImported,
           assignedBy: user?.name || 'Admin',
           assignedRole: user?.role || 'ADMIN',
           timestamp: new Date().toISOString(),
@@ -297,7 +347,7 @@ export const UploadLeadsScreen: React.FC = () => {
       if (Platform.OS !== 'web') {
         Alert.alert(
           'Upload Complete',
-          `Successfully imported ${createdCount} leads into ${selectedCampaignName}!`,
+          `Successfully imported ${totalImported} leads (${createdCount} new, ${mergedCount} merged) into ${selectedCampaignName}!`,
         );
       }
     },
@@ -309,6 +359,13 @@ export const UploadLeadsScreen: React.FC = () => {
       }
     },
   });
+
+  const isUploadDisabled =
+    uploadMutation.isPending ||
+    !pickedFile ||
+    isRoundRobinBlocked ||
+    isSpecificAgentBlocked ||
+    isManagerBlocked;
 
   const [isDownloadingTemplate, setIsDownloadingTemplate] = useState(false);
 
@@ -814,14 +871,37 @@ export const UploadLeadsScreen: React.FC = () => {
                 )}
               </TouchableOpacity>
 
+              {/* Warnings when configuration is blocked */}
+              {isRoundRobinBlocked && (
+                <View style={{ marginBottom: 12, padding: 10, backgroundColor: '#FEF2F2', borderRadius: 8, borderWidth: 1, borderColor: '#FECACA' }}>
+                  <Text style={{ fontSize: 12, color: '#DC2626', fontWeight: '600' }}>
+                    Cannot upload: No eligible telecallers available in {selectedBranch === 'ALL' ? 'the workspace' : selectedBranch} for Round Robin.
+                  </Text>
+                </View>
+              )}
+              {isSpecificAgentBlocked && (
+                <View style={{ marginBottom: 12, padding: 10, backgroundColor: '#FEF2F2', borderRadius: 8, borderWidth: 1, borderColor: '#FECACA' }}>
+                  <Text style={{ fontSize: 12, color: '#DC2626', fontWeight: '600' }}>
+                    Please select a specific telecaller from the list above.
+                  </Text>
+                </View>
+              )}
+              {isManagerBlocked && (
+                <View style={{ marginBottom: 12, padding: 10, backgroundColor: '#FEF2F2', borderRadius: 8, borderWidth: 1, borderColor: '#FECACA' }}>
+                  <Text style={{ fontSize: 12, color: '#DC2626', fontWeight: '600' }}>
+                    No branch manager found for {selectedBranch}. Please assign a manager or choose Round Robin.
+                  </Text>
+                </View>
+              )}
+
               {/* Action Button: Upload & distribute leads */}
               <TouchableOpacity
                 onPress={() => uploadMutation.mutate()}
-                disabled={uploadMutation.isPending || !pickedFile}
+                disabled={isUploadDisabled}
                 activeOpacity={0.8}
                 style={[
                   styles.primarySubmitBtn,
-                  (!pickedFile || uploadMutation.isPending) && styles.primarySubmitBtnDisabled,
+                  isUploadDisabled && styles.primarySubmitBtnDisabled,
                 ]}
               >
                 {uploadMutation.isPending ? (
@@ -919,28 +999,37 @@ export const UploadLeadsScreen: React.FC = () => {
                   </Text>
                 </View>
               ) : (
-                branchAgents.slice(0, 5).map((ag) => {
-                  const pct = Math.round(100 / Math.min(branchAgents.length, 5));
-                  const agId = (ag as any).id || ag._id;
-                  return (
-                    <View key={agId} style={styles.rosterAgentRow}>
-                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, flex: 1 }}>
-                        <View style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: '#10B981' }} />
-                        <Text style={{ fontSize: 12.5, fontWeight: '700', color: '#0F172A' }} numberOfLines={1}>
-                          {ag.name}
-                        </Text>
-                        {ag.branch && (
-                          <Text style={{ fontSize: 10, color: '#64748B' }}>
-                            ({ag.branch})
+                <>
+                  {branchAgents.slice(0, 5).map((ag) => {
+                    const pct = branchAgents.length > 0 ? Math.round(100 / branchAgents.length) : 0;
+                    const agId = (ag as any).id || ag._id;
+                    return (
+                      <View key={agId} style={styles.rosterAgentRow}>
+                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, flex: 1 }}>
+                          <View style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: '#10B981' }} />
+                          <Text style={{ fontSize: 12.5, fontWeight: '700', color: '#0F172A' }} numberOfLines={1}>
+                            {ag.name}
                           </Text>
-                        )}
+                          {ag.branch && (
+                            <Text style={{ fontSize: 10, color: '#64748B' }}>
+                              ({ag.branch})
+                            </Text>
+                          )}
+                        </View>
+                        <Text style={{ fontSize: 11.5, fontWeight: '800', color: '#4F46E5' }}>
+                          ~{pct}% Share
+                        </Text>
                       </View>
-                      <Text style={{ fontSize: 11.5, fontWeight: '800', color: '#4F46E5' }}>
-                        ~{pct}% Share
+                    );
+                  })}
+                  {branchAgents.length > 5 && (
+                    <View style={{ paddingVertical: 4, alignItems: 'center' }}>
+                      <Text style={{ fontSize: 11, color: '#64748B', fontWeight: '600' }}>
+                        + {branchAgents.length - 5} more active telecallers in equal rotation (~{Math.round(100 / branchAgents.length)}% each)
                       </Text>
                     </View>
-                  );
-                })
+                  )}
+                </>
               )}
             </View>
 
