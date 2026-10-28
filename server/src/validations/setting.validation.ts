@@ -5,6 +5,7 @@ export const updateSettingSchema = z.object({
     .object({
       allowDisposeWithoutFollowUp: z.boolean().optional(),
       followUpMandatoryForNotConnected: z.boolean().optional(),
+      autoLeadDistribution: z.boolean().optional(),
       reassignAfterHours: z.number().int().min(1, 'reassignAfterHours must be at least 1 hour').optional(),
     })
     .refine((data) => Object.keys(data).length > 0, {

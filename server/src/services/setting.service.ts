@@ -24,6 +24,10 @@ export class SettingService {
       setting.followUpMandatoryForNotConnected = updates.followUpMandatoryForNotConnected;
     }
 
+    if (updates.autoLeadDistribution !== undefined) {
+      setting.autoLeadDistribution = updates.autoLeadDistribution;
+    }
+
     if (updates.reassignAfterHours !== undefined) {
       setting.reassignAfterHours = updates.reassignAfterHours;
     }

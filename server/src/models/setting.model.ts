@@ -3,6 +3,7 @@ import { Schema, model, Document, Types } from 'mongoose';
 export interface ISetting {
   allowDisposeWithoutFollowUp: boolean;
   followUpMandatoryForNotConnected: boolean;
+  autoLeadDistribution?: boolean;
   reassignAfterHours?: number;
   createdAt: Date;
   updatedAt: Date;
@@ -19,6 +20,10 @@ const settingSchema = new Schema<ISettingDoc>(
     followUpMandatoryForNotConnected: {
       type: Boolean,
       default: false,
+    },
+    autoLeadDistribution: {
+      type: Boolean,
+      default: true,
     },
     reassignAfterHours: {
       type: Number,
