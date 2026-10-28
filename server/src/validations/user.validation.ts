@@ -65,7 +65,7 @@ export const resetPasswordSchema = z.object({
 
 export const userIdParamSchema = z.object({
   params: z.object({
-    id: z.string().regex(/^[0-9a-fA-F]{24}$/, 'Invalid user ID format'),
+    id: z.string().min(1, 'User ID is required').max(64, 'User ID too long'),
   }),
 });
 

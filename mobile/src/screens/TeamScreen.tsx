@@ -149,7 +149,15 @@ export const TeamScreen: React.FC = () => {
 
   const deleteMutation = useMutation({
     mutationFn: (id: string) => deleteUser(id),
-    onSuccess: (res) => {
+    onSuccess: (res, deletedId) => {
+      // Optimistically remove from React Query cache immediately
+      queryClient.setQueryData(['adminUsers'], (oldData: any) => {
+        if (!oldData || !Array.isArray(oldData.users)) return oldData;
+        return {
+          ...oldData,
+          users: oldData.users.filter((u: User) => u._id !== deletedId),
+        };
+      });
       queryClient.invalidateQueries({ queryKey: ['adminUsers'] });
       Alert.alert('Member Deleted', res.message || 'Team member has been removed.');
     },
