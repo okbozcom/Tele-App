@@ -175,9 +175,27 @@ export const CampaignsScreen: React.FC = () => {
         return updateCampaign(id, { isActive });
       }
     },
-    onSuccess: () => {
+    onSuccess: (_data, variables) => {
+      if (variables?.id) {
+        setActiveStatusOverrides((prev) => {
+          const next = { ...prev };
+          delete next[variables.id];
+          return next;
+        });
+      }
       queryClient.invalidateQueries({ queryKey: ['adminCampaigns'] });
       queryClient.invalidateQueries({ queryKey: ['campaigns'] });
+    },
+    onError: (err: any, variables) => {
+      if (variables?.id) {
+        setActiveStatusOverrides((prev) => {
+          const next = { ...prev };
+          delete next[variables.id];
+          return next;
+        });
+      }
+      const msg = err?.response?.data?.message || err?.message || 'Failed to update campaign status';
+      Alert.alert('Status Update Failed', msg);
     },
   });
 
@@ -234,7 +252,7 @@ export const CampaignsScreen: React.FC = () => {
         branch: c.branch || null,
         priority: pLabel as any,
         rawPriority: c.priority,
-        isActive: c.isActive !== false,
+        isActive: activeStatusOverrides[c._id] !== undefined ? activeStatusOverrides[c._id] : c.isActive !== false,
         totalLeads: (c as any).totalLeads ?? (c as any).leadCount ?? 0,
         assignedAgentsCount: c.agentIds?.length || 0,
         assignedAgents: (c.agentIds || []).map((id) => {
@@ -247,7 +265,7 @@ export const CampaignsScreen: React.FC = () => {
         iconColor: idx % 2 === 0 ? '#2563EB' : '#D97706',
       };
     });
-  }, [campaignsData, agentsList]);
+  }, [campaignsData, agentsList, activeStatusOverrides]);
 
   // Filtered campaigns by branch
   const filteredDisplayList = useMemo(() => {
@@ -927,8 +945,9 @@ export const CampaignsScreen: React.FC = () => {
             <TouchableOpacity
               style={styles.saveSubmitBtn}
               onPress={() => {
-                if (!name.trim()) {
-                  Alert.alert('Required', 'Please enter a campaign name.');
+                const trimmedName = name.trim();
+                if (!trimmedName || trimmedName.length < 2) {
+                  Alert.alert('Validation Error', 'Campaign name must be at least 2 characters long.');
                   return;
                 }
                 saveMutation.mutate();

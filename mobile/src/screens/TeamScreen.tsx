@@ -137,11 +137,25 @@ export const TeamScreen: React.FC = () => {
 
   const updateMutation = useMutation({
     mutationFn: ({ id, data }: { id: string; data: Partial<User> }) => updateUser(id, data),
-    onSuccess: () => {
+    onSuccess: (_res, variables) => {
+      if (variables?.id) {
+        setReceiveLeadsOverrides((prev) => {
+          const next = { ...prev };
+          delete next[variables.id];
+          return next;
+        });
+      }
       queryClient.invalidateQueries({ queryKey: ['adminUsers'] });
       setEditingMember(null);
     },
-    onError: (err: any) => {
+    onError: (err: any, variables) => {
+      if (variables?.id) {
+        setReceiveLeadsOverrides((prev) => {
+          const next = { ...prev };
+          delete next[variables.id];
+          return next;
+        });
+      }
       const msg = err?.response?.data?.message || err?.message || 'Failed to update member';
       Alert.alert('Update Failed', msg);
     },
@@ -830,8 +844,27 @@ export const TeamScreen: React.FC = () => {
               <TouchableOpacity
                 style={styles.submitBtn}
                 onPress={() => {
-                  if (!name.trim() || !email.trim() || !password.trim()) {
-                    Alert.alert('Required Fields', 'Please fill name, email, and password.');
+                  const trimmedName = name.trim();
+                  const cleanEmail = email.trim();
+                  const cleanPhone = phone.trim();
+                  const cleanPassword = password.trim();
+
+                  if (!trimmedName || trimmedName.length < 2) {
+                    Alert.alert('Validation Error', 'Please enter a valid member name (at least 2 characters).');
+                    return;
+                  }
+                  const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+                  if (!emailRegex.test(cleanEmail)) {
+                    Alert.alert('Invalid Email', 'Please enter a valid email address (e.g. name@company.com).');
+                    return;
+                  }
+                  const phoneDigits = cleanPhone.replace(/\D/g, '');
+                  if (!phoneDigits || phoneDigits.length < 10) {
+                    Alert.alert('Invalid Phone', 'Please enter a valid 10-digit phone number.');
+                    return;
+                  }
+                  if (cleanPassword.length < 6) {
+                    Alert.alert('Weak Password', 'Password must be at least 6 characters long.');
                     return;
                   }
                   const finalBranch =
@@ -840,10 +873,10 @@ export const TeamScreen: React.FC = () => {
                       : branch;
 
                   createMutation.mutate({
-                    name: name.trim(),
-                    email: email.trim(),
-                    phone: phone.trim() || '9876543210',
-                    password: password.trim(),
+                    name: trimmedName,
+                    email: cleanEmail,
+                    phone: phoneDigits.slice(-10),
+                    password: cleanPassword,
                     role,
                     branch: finalBranch,
                     canReceiveLeads: true,
