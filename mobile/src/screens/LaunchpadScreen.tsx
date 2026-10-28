@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import {
   View,
   Text,
@@ -8,6 +8,7 @@ import {
   useWindowDimensions,
   Platform,
   StatusBar as RNStatusBar,
+  ActivityIndicator,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useNavigation } from '@react-navigation/native';
@@ -34,6 +35,7 @@ import { FloatingDialpadFab } from '../components/FloatingDialpadFab';
 import { useSafeTopPadding } from '../utils/safeArea';
 import { RootStackParamList } from '../types';
 import { fetchMyLeads } from '../api/leadApi';
+import { toast } from '../store/toastStore';
 
 type NavigationProp = NativeStackNavigationProp<RootStackParamList>;
 
@@ -45,15 +47,33 @@ export const LaunchpadScreen: React.FC = () => {
 
   const { user, logout } = useAuthStore();
   const isManagerOrAdmin = user?.role === 'ADMIN' || user?.role === 'MANAGER';
+  const [isRefreshing, setIsRefreshing] = useState(false);
 
-  // Quick summary for badge cues
-  const { data: leadsData, refetch } = useQuery({
+  // Quick summary for badge cues (request limit 1 to retrieve accurate total count efficiently)
+  const {
+    data: leadsData,
+    isLoading: isLeadsLoading,
+    isError: isLeadsError,
+    refetch,
+  } = useQuery({
     queryKey: ['myLeadsSummary', user?._id],
-    queryFn: () => fetchMyLeads({ limit: 500 }),
+    queryFn: () => fetchMyLeads({ limit: 1 }),
     staleTime: 1000 * 30,
   });
 
-  const totalAssignedLeads = leadsData?.total ?? leadsData?.leads?.length ?? 0;
+  const totalAssignedLeads = leadsData?.total ?? (Array.isArray(leadsData?.leads) ? leadsData.leads.length : 0);
+
+  const handleManualRefresh = async () => {
+    setIsRefreshing(true);
+    try {
+      await refetch();
+      toast.success('Workspace updated', 'Refreshed');
+    } catch {
+      toast.error('Could not refresh workspace data', 'Network Error');
+    } finally {
+      setIsRefreshing(false);
+    }
+  };
 
   const handleStartCalling = () => {
     navigation.navigate('CallingDesk');
@@ -106,11 +126,16 @@ export const LaunchpadScreen: React.FC = () => {
 
           <TouchableOpacity
             style={styles.refreshIconBtn}
-            onPress={() => refetch()}
+            onPress={handleManualRefresh}
+            disabled={isRefreshing}
             activeOpacity={0.7}
             hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
           >
-            <RefreshCw size={15} color="#475569" />
+            {isRefreshing ? (
+              <ActivityIndicator size="small" color="#475569" />
+            ) : (
+              <RefreshCw size={15} color="#475569" />
+            )}
           </TouchableOpacity>
         </View>
       </View>

@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import {
   View,
   Text,
@@ -80,6 +80,16 @@ export const AgentReportScreen: React.FC = () => {
     return Array.from(new Set([...defaults, ...fromApi])).filter(Boolean);
   }, [branchesList]);
 
+  // Dynamic midnight tracker: re-evaluates date boundaries across midnight
+  const [currentDateKey, setCurrentDateKey] = useState(() => new Date().toDateString());
+  useEffect(() => {
+    const interval = setInterval(() => {
+      const todayStr = new Date().toDateString();
+      setCurrentDateKey((prev) => (prev !== todayStr ? todayStr : prev));
+    }, 60000);
+    return () => clearInterval(interval);
+  }, []);
+
   // Compute ISO date range for query
   const { fromDate, toDate, periodLabel } = useMemo(() => {
     const now = new Date();
@@ -123,7 +133,7 @@ export const AgentReportScreen: React.FC = () => {
       toDate: undefined,
       periodLabel: 'All Time',
     };
-  }, [period]);
+  }, [period, currentDateKey]);
 
   // 1. Fetch Backend User Calls Report
   const {

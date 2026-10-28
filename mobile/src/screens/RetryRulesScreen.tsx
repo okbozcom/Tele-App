@@ -23,7 +23,7 @@ import {
 import { useNavigation } from '@react-navigation/native';
 
 import { useAuthStore } from '../store/authStore';
-import { fetchRetryRules, updateRetryRule } from '../api/leadApi';
+import { fetchRetryRules, updateRetryRule, updateRetryRulesBulk } from '../api/leadApi';
 import { RetryRule } from '../types';
 import { colors } from '../theme';
 import { CrmShell } from '../components/CrmShell';
@@ -153,24 +153,33 @@ export const RetryRulesScreen: React.FC = () => {
     }
   }, [backendRules]);
 
-  // Mutation to update rule
+  // Mutation to update rules in bulk with strict range validation
   const updateMutation = useMutation({
     mutationFn: async (updatedList: DisplayRetryItem[]) => {
-      for (const item of updatedList) {
-        if (!item.id.startsWith('rule-')) {
-          await updateRetryRule(item.id, {
-            enabled: item.enabled,
-            steps: [
-              { delayMinutes: parseInt(item.firstRetryMin, 10) || 15 },
-              { delayMinutes: parseInt(item.secondRetryMin, 10) || 1440 },
-            ],
-          });
+      const payload = updatedList.map((item) => {
+        const step1 = parseInt(item.firstRetryMin, 10);
+        const step2 = parseInt(item.secondRetryMin, 10);
+        if (isNaN(step1) || step1 < 1 || step1 > 43200) {
+          throw new Error(`Invalid first retry delay for "${item.title}". Must be between 1 and 43,200 minutes.`);
         }
-      }
+        if (isNaN(step2) || step2 < 1 || step2 > 43200) {
+          throw new Error(`Invalid second retry delay for "${item.title}". Must be between 1 and 43,200 minutes.`);
+        }
+        return {
+          reason: item.reasonKey,
+          enabled: item.enabled,
+          steps: [
+            { delayMinutes: step1 },
+            { delayMinutes: step2 },
+          ],
+        };
+      });
+
+      return await updateRetryRulesBulk(payload);
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['adminRetryRules'] });
-      Alert.alert('Saved', 'Retry rules schedule saved successfully.');
+      Alert.alert('Saved', 'Retry rules schedule saved successfully to the database.');
     },
     onError: (err: any) => {
       const msg = err?.response?.data?.message || err?.message || 'Failed to save rules';
@@ -244,11 +253,26 @@ export const RetryRulesScreen: React.FC = () => {
       >
         {/* Banner Section */}
         <View style={styles.bannerRow}>
-          <View>
+          <View style={{ flex: 1, marginRight: 12 }}>
             <Text style={styles.bannerTitle}>A smarter next attempt</Text>
             <Text style={styles.bannerSubtitle}>
               Schedule another call when the first doesn't connect
             </Text>
+            {backendRules.length === 0 ? (
+              <View style={{ flexDirection: 'row', alignItems: 'center', marginTop: 5, gap: 4 }}>
+                <Clock size={12} color="#D97706" />
+                <Text style={{ fontSize: 11, color: '#D97706', fontWeight: '600' }}>
+                  Default template loaded. Click 'Save rules' to sync with database.
+                </Text>
+              </View>
+            ) : (
+              <View style={{ flexDirection: 'row', alignItems: 'center', marginTop: 5, gap: 4 }}>
+                <CheckCircle2 size={12} color="#16A34A" />
+                <Text style={{ fontSize: 11, color: '#16A34A', fontWeight: '600' }}>
+                  Synced with server database (Calling hours 09:00 - 20:00 IST compliant)
+                </Text>
+              </View>
+            )}
           </View>
 
           <TouchableOpacity
