@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useRef } from 'react';
 import {
   View,
   Text,
@@ -67,6 +67,9 @@ export const LoginScreen: React.FC = () => {
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [isKeyboardVisible, setIsKeyboardVisible] = useState(false);
+  const [validationError, setValidationError] = useState<string | null>(null);
+  const passwordInputRef = useRef<TextInput>(null);
+
   const { login, isLoading, error, clearError } = useAuthStore();
 
   useEffect(() => {
@@ -82,11 +85,38 @@ export const LoginScreen: React.FC = () => {
   }, []);
 
   const handleLogin = async () => {
-    if (!email.trim() || !password) return;
-    await login(email.trim(), password);
+    if (isLoading) return;
+    setValidationError(null);
+    if (error) clearError();
+
+    const cleanEmail = email.trim();
+    if (!cleanEmail) {
+      setValidationError('Please enter your email address.');
+      return;
+    }
+
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(cleanEmail)) {
+      setValidationError('Please enter a valid email address (e.g. name@company.com).');
+      return;
+    }
+
+    if (!password) {
+      setValidationError('Please enter your password.');
+      passwordInputRef.current?.focus();
+      return;
+    }
+
+    if (password.length < 4) {
+      setValidationError('Password must be at least 4 characters long.');
+      passwordInputRef.current?.focus();
+      return;
+    }
+
+    await login(cleanEmail, password);
   };
 
-  const canSubmit = Boolean(email.trim() && password) && !isLoading;
+  const isReady = Boolean(email.trim() && password) && !isLoading;
 
   return (
     <SafeAreaView style={[styles.safeArea, { paddingTop: safeTopPadding }]} edges={['left', 'right']}>
@@ -143,10 +173,10 @@ export const LoginScreen: React.FC = () => {
               </Text>
 
               {/* Error Banner */}
-              {error ? (
+              {validationError || error ? (
                 <View style={styles.errorBanner}>
                   <AlertCircle size={16} color={T.color.danger} />
-                  <Text style={styles.errorBannerText}>{error}</Text>
+                  <Text style={styles.errorBannerText}>{validationError || error}</Text>
                 </View>
               ) : null}
 
@@ -162,11 +192,15 @@ export const LoginScreen: React.FC = () => {
                     value={email}
                     onChangeText={(text) => {
                       setEmail(text);
+                      if (validationError) setValidationError(null);
                       if (error) clearError();
                     }}
                     keyboardType="email-address"
                     autoCapitalize="none"
                     autoCorrect={false}
+                    returnKeyType="next"
+                    blurOnSubmit={false}
+                    onSubmitEditing={() => passwordInputRef.current?.focus()}
                   />
                 </View>
               </View>
@@ -183,17 +217,21 @@ export const LoginScreen: React.FC = () => {
                 <View style={[styles.inputWrap, isCompactMobile && styles.compactInputWrap]}>
                   <Lock size={16} color={T.color.textFaint} />
                   <TextInput
+                    ref={passwordInputRef}
                     style={styles.input}
                     placeholder="Enter your password"
                     placeholderTextColor={T.color.textFaint}
                     value={password}
                     onChangeText={(text) => {
                       setPassword(text);
+                      if (validationError) setValidationError(null);
                       if (error) clearError();
                     }}
                     secureTextEntry={!showPassword}
                     autoCapitalize="none"
                     autoCorrect={false}
+                    returnKeyType="go"
+                    onSubmitEditing={handleLogin}
                   />
                   <TouchableOpacity
                     onPress={() => setShowPassword(!showPassword)}
@@ -212,12 +250,12 @@ export const LoginScreen: React.FC = () => {
               {/* Sign In CTA */}
               <TouchableOpacity
                 onPress={handleLogin}
-                disabled={!canSubmit}
+                disabled={isLoading}
                 activeOpacity={0.85}
                 style={[
                   styles.submitBtn,
                   isCompactMobile && styles.compactSubmitBtn,
-                  !canSubmit && styles.submitBtnDisabled,
+                  !isReady && styles.submitBtnDisabled,
                 ]}
               >
                 {isLoading ? (

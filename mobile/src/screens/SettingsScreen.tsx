@@ -49,6 +49,7 @@ import { Branch } from '../types';
 import { useTemplateStore, WhatsAppTemplate } from '../store/templateStore';
 import { colors } from '../theme';
 import { CrmShell } from '../components/CrmShell';
+import { storage } from '../utils/storage';
 
 export const SettingsScreen: React.FC = () => {
   const navigation = useNavigation<any>();
@@ -71,6 +72,34 @@ export const SettingsScreen: React.FC = () => {
   const [autoLeadDistribution, setAutoLeadDistribution] = useState(true);
   const [callDelaySeconds, setCallDelaySeconds] = useState<number>(3);
   const [dialSoundEnabled, setDialSoundEnabled] = useState<boolean>(true);
+
+  // Load and persist local agent calling preferences
+  useEffect(() => {
+    const loadLocalPreferences = async () => {
+      try {
+        const savedDelay = await storage.getItem('tele_settings_call_delay');
+        if (savedDelay) {
+          const parsed = parseInt(savedDelay, 10);
+          if (!isNaN(parsed)) setCallDelaySeconds(parsed);
+        }
+        const savedSound = await storage.getItem('tele_settings_dial_sound');
+        if (savedSound !== null) {
+          setDialSoundEnabled(savedSound === 'true');
+        }
+      } catch {}
+    };
+    loadLocalPreferences();
+  }, []);
+
+  const handleSetCallDelay = (seconds: number) => {
+    setCallDelaySeconds(seconds);
+    storage.setItem('tele_settings_call_delay', seconds.toString()).catch(() => {});
+  };
+
+  const handleSetDialSound = (enabled: boolean) => {
+    setDialSoundEnabled(enabled);
+    storage.setItem('tele_settings_dial_sound', enabled ? 'true' : 'false').catch(() => {});
+  };
 
   // Template Store
   const { templates, loadTemplates, addTemplate, updateTemplate, deleteTemplate, resetToDefaults } =
@@ -147,11 +176,11 @@ export const SettingsScreen: React.FC = () => {
     }
     Alert.alert(
       'Delete Branch',
-      `Are you sure you want to remove the ${name} Branch?`,
+      `Are you sure you want to permanently delete the ${name} Branch? All team assignments and branch filters will be updated.`,
       [
         { text: 'Cancel', style: 'cancel' },
         {
-          text: 'Delete',
+          text: 'Delete Permanently',
           style: 'destructive',
           onPress: () => deleteBranchMutation.mutate(id),
         },
@@ -176,6 +205,9 @@ export const SettingsScreen: React.FC = () => {
       if (backendSettings.followUpMandatoryForNotConnected !== undefined) {
         setFollowUpMandatoryForNotConnected(backendSettings.followUpMandatoryForNotConnected);
       }
+      if (backendSettings.autoLeadDistribution !== undefined) {
+        setAutoLeadDistribution(backendSettings.autoLeadDistribution);
+      }
     }
   }, [backendSettings]);
 
@@ -185,6 +217,7 @@ export const SettingsScreen: React.FC = () => {
       return updateAdminSettings({
         allowDisposeWithoutFollowUp,
         followUpMandatoryForNotConnected,
+        autoLeadDistribution,
       });
     },
     onSuccess: () => {
@@ -195,8 +228,37 @@ export const SettingsScreen: React.FC = () => {
     onError: (err: any) => {
       const msg = err?.response?.data?.message || err?.message || 'Failed to save settings';
       Alert.alert('Error', msg);
+      if (backendSettings) {
+        if (backendSettings.allowDisposeWithoutFollowUp !== undefined) {
+          setAllowDisposeWithoutFollowUp(backendSettings.allowDisposeWithoutFollowUp);
+        }
+        if (backendSettings.followUpMandatoryForNotConnected !== undefined) {
+          setFollowUpMandatoryForNotConnected(backendSettings.followUpMandatoryForNotConnected);
+        }
+        if (backendSettings.autoLeadDistribution !== undefined) {
+          setAutoLeadDistribution(backendSettings.autoLeadDistribution);
+        }
+      }
     },
   });
+
+  const handleResetTemplates = () => {
+    Alert.alert(
+      'Reset WhatsApp Templates',
+      'Are you sure you want to restore the default company templates? All custom templates will be reset to company standards.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Reset to Defaults',
+          style: 'destructive',
+          onPress: async () => {
+            await resetToDefaults();
+            Alert.alert('Templates Restored', 'Default WhatsApp templates have been restored.');
+          },
+        },
+      ],
+    );
+  };
 
   const handleOpenAddTemplate = () => {
     setEditingTemplateId(null);
@@ -333,7 +395,7 @@ export const SettingsScreen: React.FC = () => {
               {[3, 5, 10].map((s) => (
                 <TouchableOpacity
                   key={s}
-                  onPress={() => setCallDelaySeconds(s)}
+                  onPress={() => handleSetCallDelay(s)}
                   activeOpacity={0.7}
                   style={{
                     paddingHorizontal: 10,
@@ -368,7 +430,7 @@ export const SettingsScreen: React.FC = () => {
             </View>
             <Switch
               value={dialSoundEnabled}
-              onValueChange={setDialSoundEnabled}
+              onValueChange={handleSetDialSound}
               trackColor={{ false: '#E2E8F0', true: '#10B981' }}
               thumbColor="#FFFFFF"
             />
@@ -444,22 +506,43 @@ export const SettingsScreen: React.FC = () => {
             <Text style={styles.sectionHeaderTitle}>WhatsApp Service Templates</Text>
           </View>
 
-          <TouchableOpacity
-            style={{
-              flexDirection: 'row',
-              alignItems: 'center',
-              backgroundColor: '#10B981',
-              paddingVertical: 7,
-              paddingHorizontal: 12,
-              borderRadius: 8,
-              gap: 6,
-            }}
-            onPress={handleOpenAddTemplate}
-            activeOpacity={0.8}
-          >
-            <Plus size={13} color="#FFFFFF" strokeWidth={2.5} />
-            <Text style={{ color: '#FFFFFF', fontSize: 12, fontWeight: '700' }}>Add Template</Text>
-          </TouchableOpacity>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+            <TouchableOpacity
+              style={{
+                flexDirection: 'row',
+                alignItems: 'center',
+                backgroundColor: '#F1F5F9',
+                paddingVertical: 7,
+                paddingHorizontal: 10,
+                borderRadius: 8,
+                borderWidth: 1,
+                borderColor: '#E2E8F0',
+                gap: 5,
+              }}
+              onPress={handleResetTemplates}
+              activeOpacity={0.8}
+            >
+              <RotateCw size={12} color="#64748B" />
+              <Text style={{ color: '#475569', fontSize: 11.5, fontWeight: '700' }}>Reset Defaults</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={{
+                flexDirection: 'row',
+                alignItems: 'center',
+                backgroundColor: '#10B981',
+                paddingVertical: 7,
+                paddingHorizontal: 12,
+                borderRadius: 8,
+                gap: 6,
+              }}
+              onPress={handleOpenAddTemplate}
+              activeOpacity={0.8}
+            >
+              <Plus size={13} color="#FFFFFF" strokeWidth={2.5} />
+              <Text style={{ color: '#FFFFFF', fontSize: 12, fontWeight: '700' }}>Add Template</Text>
+            </TouchableOpacity>
+          </View>
         </View>
 
         <Text style={styles.templatesSubtitle}>
@@ -896,8 +979,9 @@ export const SettingsScreen: React.FC = () => {
                 marginTop: 16,
               }}
               onPress={() => {
-                if (!newBranchName.trim()) {
-                  Alert.alert('Required', 'Please enter a branch name.');
+                const trimmedName = newBranchName.trim();
+                if (!trimmedName || trimmedName.length < 2) {
+                  Alert.alert('Validation Error', 'Branch name must be at least 2 characters long.');
                   return;
                 }
                 createBranchMutation.mutate();

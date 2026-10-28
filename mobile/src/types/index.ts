@@ -139,6 +139,7 @@ export interface Setting {
   _id?: string;
   allowDisposeWithoutFollowUp: boolean;
   followUpMandatoryForNotConnected: boolean;
+  autoLeadDistribution?: boolean;
   reassignAfterHours?: number;
   createdAt?: string;
   updatedAt?: string;
