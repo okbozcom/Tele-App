@@ -255,6 +255,15 @@ const MyLeadsScreenContent: React.FC = () => {
   const isWide = width >= 860;
 
   const [searchQuery, setSearchQuery] = useState('');
+  const [debouncedSearch, setDebouncedSearch] = useState('');
+
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setDebouncedSearch(searchQuery);
+    }, 250);
+    return () => clearTimeout(timer);
+  }, [searchQuery]);
+
   const [selectedFilter, setSelectedFilter] = useState<'All' | 'New' | 'Interested' | 'Follow-up' | 'Not connected' | 'Not Interested'>('All');
   const [assignmentScope, setAssignmentScope] = useState<'ALL' | 'ME'>('ALL');
   const selectedCampaign = selectedCampaignName || 'All campaigns';
@@ -355,21 +364,40 @@ const MyLeadsScreenContent: React.FC = () => {
           : l?.campaignId;
 
       const normalizedStage = (l?.stage || 'New').toString().trim().toLowerCase();
-      const stg =
-        normalizedStage === 'new'
-          ? 'New'
-          : normalizedStage === 'interested'
-          ? 'Interested'
-          : normalizedStage === 'not interested' ||
-            normalizedStage === 'closed' ||
-            normalizedStage === 'lost' ||
-            l?.status === 'CLOSED'
-          ? 'Not Interested'
-          : normalizedStage === 'not connected'
-          ? 'Not connected'
-          : normalizedStage === 'contacted'
-          ? 'Interested'
-          : 'Follow-up';
+      const hasFollowUpSchedule = !!l?.nextFollowUpAt;
+
+      let stg: 'New' | 'Interested' | 'Follow-up' | 'Not connected' | 'Not Interested';
+      if (normalizedStage === 'new' && (!l.attemptCount || l.attemptCount === 0)) {
+        stg = 'New';
+      } else if (normalizedStage === 'interested') {
+        stg = 'Interested';
+      } else if (
+        normalizedStage === 'not interested' ||
+        normalizedStage === 'closed' ||
+        normalizedStage === 'lost' ||
+        normalizedStage === 'rejected' ||
+        l?.status === 'CLOSED'
+      ) {
+        stg = 'Not Interested';
+      } else if (
+        normalizedStage === 'not connected' ||
+        normalizedStage === 'busy' ||
+        normalizedStage === 'ringing' ||
+        normalizedStage === 'switched off' ||
+        normalizedStage === 'unreachable'
+      ) {
+        stg = 'Not connected';
+      } else if (
+        hasFollowUpSchedule ||
+        normalizedStage === 'follow up' ||
+        normalizedStage === 'follow-up' ||
+        normalizedStage === 'callback'
+      ) {
+        stg = 'Follow-up';
+      } else {
+        // If called without specific disposition, default to Follow-up; untouched defaults to New
+        stg = (l?.attemptCount && l.attemptCount > 0) || l?.lastContactedAt ? 'Follow-up' : 'New';
+      }
 
       const assignedObj = typeof l?.assignedTo === 'object' && l.assignedTo ? (l.assignedTo as any) : null;
       const assignedId = assignedObj?._id ? String(assignedObj._id) : typeof l?.assignedTo === 'string' ? l.assignedTo : '';
@@ -389,9 +417,9 @@ const MyLeadsScreenContent: React.FC = () => {
       const campPriority = typeof l?.campaign === 'object' ? (l.campaign as any)?.priority : undefined;
 
       const leadPriority: 'High' | 'Medium' | 'Low' =
-        tagUpper === 'HOT'
+        tagUpper === 'HOT' || (l as any)?.temperature === 'HOT'
           ? 'High'
-          : tagUpper === 'COLD'
+          : tagUpper === 'COLD' || (l as any)?.temperature === 'COLD'
           ? 'Low'
           : campPriority === 'HIGH'
           ? 'High'
@@ -400,7 +428,7 @@ const MyLeadsScreenContent: React.FC = () => {
           : 'Medium';
 
       return {
-        _id: l?._id || 'lead-' + Math.random().toString(36).substring(7),
+        _id: l?._id || (l?.phone ? `lead-phone-${l.phone.replace(/\D/g, '')}` : `lead-fallback-${cId || 'gen'}`),
         name: (l?.name || 'Lead Contact').toString(),
         phone: formatDisplayPhone(l?.phone || ''),
         campaignName: camp,
@@ -409,14 +437,19 @@ const MyLeadsScreenContent: React.FC = () => {
         assignedAgent: agentDisplay,
         assignedToId: assignedId,
         assignedToName: assignedObj?.name || (isAssignedToCurrentUser ? (user?.name || 'You') : ''),
-        status: stg as any,
+        status: stg,
         priority: leadPriority,
-        lastContact: l?.updatedAt
+        lastContact: l?.lastContactedAt
+          ? new Date(l.lastContactedAt).toLocaleTimeString([], {
+              hour: '2-digit',
+              minute: '2-digit',
+            })
+          : l?.attemptCount && l.attemptCount > 0 && l?.updatedAt
           ? new Date(l.updatedAt).toLocaleTimeString([], {
               hour: '2-digit',
               minute: '2-digit',
             })
-          : 'Recently',
+          : 'Never',
       };
     });
   }, [effectiveLeadsData, isAgent, user]);
@@ -466,7 +499,7 @@ const MyLeadsScreenContent: React.FC = () => {
   // Filtered Leads
   const filteredLeads = useMemo(() => {
     const selCampLower = (selectedCampaign || 'All campaigns').toLowerCase();
-    const q = searchQuery.toLowerCase().trim();
+    const q = debouncedSearch.toLowerCase().trim();
     const myId = user?._id ? String(user._id) : '';
 
     return combinedLeads.filter((lead) => {
@@ -500,7 +533,7 @@ const MyLeadsScreenContent: React.FC = () => {
         return false;
       }
 
-      // Search query
+      // Search query (debounced)
       if (q) {
         return (
           (lead.name || '').toLowerCase().includes(q) ||
@@ -510,7 +543,7 @@ const MyLeadsScreenContent: React.FC = () => {
       }
       return true;
     });
-  }, [combinedLeads, selectedFilter, selectedCampaign, searchQuery, selectedCampaignId, isManagerOrAdmin, assignmentScope, user?._id]);
+  }, [combinedLeads, selectedFilter, selectedCampaign, debouncedSearch, selectedCampaignId, isManagerOrAdmin, assignmentScope, user?._id]);
 
   const [isExporting, setIsExporting] = useState(false);
 
@@ -526,7 +559,8 @@ const MyLeadsScreenContent: React.FC = () => {
       const filename = `leads_export_${timestamp}.csv`;
       const res = await downloadOrShareCsv(filename, csvContent);
       if (res.success) {
-        toast.success(`Exported ${filteredLeads.length} leads to CSV!`, 'Export Ready');
+        const filterContext = selectedFilter !== 'All' ? ` (${selectedFilter})` : '';
+        toast.success(`Exported ${filteredLeads.length} leads${filterContext} to CSV!`, 'Export Ready');
       } else {
         toast.error(res.message, 'Export Failed');
       }
@@ -549,18 +583,20 @@ const MyLeadsScreenContent: React.FC = () => {
       return;
     }
 
-    if (isCallingRef.current) {
+    if (isCallingRef.current || callSession.isCallInProgress()) {
+      toast.info('A call session is already active.', 'Call In Progress');
       return;
     }
 
     const isSuppressed = leadStatus === 'Not Interested' || leadStatus === 'Closed';
 
     const executeCall = async () => {
-      if (isCallingRef.current) return;
+      if (isCallingRef.current || callSession.isCallInProgress()) return;
       isCallingRef.current = true;
 
       // 1. Resolve Lead object
       const foundLead = (leadsData?.leads || []).find((l: Lead) => l._id === leadId || l.phone === phone);
+      const existingAttempts = (foundLead as any)?.attemptCount ?? 0;
       const activeLead: Lead = foundLead || {
         _id: leadId || 'lead-' + Date.now(),
         campaignId: 'default',
@@ -569,7 +605,7 @@ const MyLeadsScreenContent: React.FC = () => {
         source: 'DIRECT',
         stage: leadStatus || 'New',
         status: 'OPEN',
-        attemptCount: 1,
+        attemptCount: existingAttempts,
         customProperties: {},
         createdAt: new Date().toISOString(),
         updatedAt: new Date().toISOString(),
@@ -1109,7 +1145,13 @@ const MyLeadsScreenContent: React.FC = () => {
   const renderFooter = filteredLeads.length > 0 ? (
     <View style={styles.mobileFooterSummary}>
       <Text style={styles.tableFooterCount}>Showing {filteredLeads.length} leads</Text>
-      <Text style={styles.tableFooterStatus}>All leads synced</Text>
+      <Text style={styles.tableFooterStatus}>
+        {isLeadsLoading || isLeadsRefetching
+          ? 'Syncing leads...'
+          : isLeadsError
+          ? 'Sync failed · Viewing local cache'
+          : 'All leads synced'}
+      </Text>
     </View>
   ) : null;
 
@@ -1272,7 +1314,13 @@ const MyLeadsScreenContent: React.FC = () => {
                 {/* Table Footer */}
                 <View style={styles.tableFooter}>
                   <Text style={styles.tableFooterCount}>{filteredLeads.length} leads</Text>
-                  <Text style={styles.tableFooterStatus}>All leads loaded</Text>
+                  <Text style={styles.tableFooterStatus}>
+                    {isLeadsLoading || isLeadsRefetching
+                      ? 'Syncing leads...'
+                      : isLeadsError
+                      ? 'Sync failed · Viewing local cache'
+                      : 'All leads synced'}
+                  </Text>
                 </View>
               </View>
             </ScrollView>
