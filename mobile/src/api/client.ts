@@ -1,4 +1,5 @@
 import axios, { AxiosError, InternalAxiosRequestConfig } from 'axios';
+import { Platform } from 'react-native';
 import { API_BASE_URL } from '../config';
 import { useAuthStore } from '../store/authStore';
 
@@ -10,9 +11,19 @@ export const apiClient = axios.create({
   },
 });
 
-// Request Interceptor: Normalize duplicate /api prefix and attach Bearer JWT token if valid
+// Request Interceptor: Dynamic host resolution, normalize duplicate /api prefix and attach Bearer JWT token if valid
 apiClient.interceptors.request.use(
   (config: InternalAxiosRequestConfig) => {
+    // Dynamic web origin resolution:
+    if (Platform.OS === 'web' && typeof window !== 'undefined' && window.location) {
+      const hostname = window.location.hostname;
+      if (hostname === 'localhost' || hostname === '127.0.0.1') {
+        config.baseURL = 'http://localhost:5000/api';
+      } else if (window.location.origin && window.location.origin !== 'null') {
+        config.baseURL = `${window.location.origin}/api`;
+      }
+    }
+
     // If url starts with '/api/' and baseURL already contains '/api', remove duplicate prefix
     if (config.url && config.url.startsWith('/api/')) {
       config.url = config.url.replace(/^\/api/, '');
