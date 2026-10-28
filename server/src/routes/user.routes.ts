@@ -8,6 +8,7 @@ import {
   resetPasswordSchema,
   bulkCreateUsersSchema,
   listUsersQuerySchema,
+  userIdParamSchema,
 } from '../validations/user.validation';
 
 const router = Router();
@@ -31,6 +32,9 @@ router.post(
 
 // Edit user: ADMIN and MANAGER (role change restricted to ADMIN in service logic)
 router.patch('/:id', authorize('ADMIN', 'MANAGER'), validate(updateUserSchema), UserController.updateUser);
+
+// Delete user: ADMIN and MANAGER (managers restricted to AGENT in their branch)
+router.delete('/:id', authorize('ADMIN', 'MANAGER'), validate(userIdParamSchema), UserController.deleteUser);
 
 // Reset user password: ADMIN only
 router.post(

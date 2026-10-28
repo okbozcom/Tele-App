@@ -28,7 +28,7 @@ export class CampaignController {
       if (!req.user) {
         throw new AppError('Authentication required', 401);
       }
-      const campaigns = await CampaignService.listCampaigns(req.user);
+      const campaigns = await CampaignService.listCampaigns(req.user, req.query as { branch?: string });
       res.status(200).json({ campaigns });
     } catch (error) {
       next(error);

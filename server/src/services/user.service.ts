@@ -2,6 +2,7 @@ import bcrypt from 'bcryptjs';
 import { Types } from 'mongoose';
 import { User, IUserDoc, UserRole } from '../models/user.model';
 import { Lead } from '../models/lead.model';
+import { Campaign } from '../models/campaign.model';
 import { AuditService } from './audit.service';
 import {
   CreateUserInput,
@@ -228,5 +229,98 @@ export class UserService {
 
     const createdUsers = await User.insertMany(usersToCreate);
     return createdUsers;
+  }
+
+  public static async deleteUser(
+    requester: IUserDoc,
+    userId: string,
+  ): Promise<{ success: boolean; message: string; reassignedCount: number }> {
+    if (requester._id.toString() === userId) {
+      throw new AppError('You cannot delete your own account', 400);
+    }
+
+    const user = await User.findById(userId);
+    if (!user) {
+      throw new AppError('User not found', 404);
+    }
+
+    // Role-based authorization:
+    // MANAGER can only delete AGENT in their own branch
+    if (requester.role === 'MANAGER') {
+      if (user.role !== 'AGENT') {
+        throw new AppError('Managers can only delete AGENT users', 403);
+      }
+      if (requester.branch && user.branch && requester.branch !== user.branch) {
+        throw new AppError('Managers can only delete agents in their own branch', 403);
+      }
+    }
+
+    // If target is ADMIN, prevent deletion if they are the only ADMIN
+    if (user.role === 'ADMIN') {
+      if (requester.role !== 'ADMIN') {
+        throw new AppError('Only administrators can delete admin accounts', 403);
+      }
+      const adminCount = await User.countDocuments({ role: 'ADMIN', isActive: true });
+      if (adminCount <= 1) {
+        throw new AppError('Cannot delete the only active administrator', 400);
+      }
+    }
+
+    // Safe lead handling: find active agents in same branch or fallback to manager/requester
+    let reassignedCount = 0;
+    const activeAgents = await User.find({
+      role: 'AGENT',
+      isActive: true,
+      canReceiveLeads: true,
+      _id: { $ne: user._id },
+      ...(user.branch ? { branch: user.branch } : {}),
+    });
+
+    if (activeAgents.length > 0) {
+      const targetAgent = activeAgents[0];
+      const reassigned = await Lead.updateMany(
+        { assignedTo: user._id, status: 'OPEN' },
+        { $set: { assignedTo: targetAgent._id } },
+      );
+      reassignedCount = reassigned.modifiedCount;
+    } else {
+      const fallbackTarget = user.managerId || requester._id;
+      const reassigned = await Lead.updateMany(
+        { assignedTo: user._id, status: 'OPEN' },
+        { $set: { assignedTo: fallbackTarget } },
+      );
+      reassignedCount = reassigned.modifiedCount;
+    }
+
+    // Remove user ID from campaigns agentIds
+    await Campaign.updateMany(
+      { agentIds: user._id },
+      { $pull: { agentIds: user._id } },
+    );
+
+    // Delete the user
+    await User.findByIdAndDelete(userId);
+
+    await AuditService.log({
+      userId: requester._id,
+      userEmail: requester.email,
+      userRole: requester.role,
+      action: 'USER_DELETE',
+      resourceType: 'USER',
+      resourceId: user._id.toString(),
+      details: {
+        deletedUserEmail: user.email,
+        deletedUserName: user.name,
+        role: user.role,
+        branch: user.branch,
+        reassignedLeadsCount: reassignedCount,
+      },
+    });
+
+    return {
+      success: true,
+      message: `User '${user.name}' deleted successfully. ${reassignedCount} open leads reassigned.`,
+      reassignedCount,
+    };
   }
 }

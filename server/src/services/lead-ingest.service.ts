@@ -2,7 +2,7 @@ import { Types } from 'mongoose';
 import { Campaign } from '../models/campaign.model';
 import { Pipeline } from '../models/pipeline.model';
 import { Lead, ILeadDoc } from '../models/lead.model';
-import { User } from '../models/user.model';
+import { User, IUserDoc } from '../models/user.model';
 import { LeadAssignmentService } from './lead-assignment.service';
 import { normalizePhone } from '../utils/phone.util';
 import { AppError } from '../utils/AppError';
@@ -71,6 +71,26 @@ export class LeadIngestService {
       agentByName.set(ag.name.toLowerCase(), ag._id);
       agentById.set(ag._id.toString(), ag._id);
     }
+
+    let targetUser: IUserDoc | null = null;
+    if (targetAgentId && Types.ObjectId.isValid(targetAgentId)) {
+      targetUser = await User.findById(targetAgentId);
+    }
+
+    // Auto-scope distribution to branch agents if campaign is branch-specific and has no agent list
+    if (campaign.branch && (!campaign.agentIds || campaign.agentIds.length === 0)) {
+      const branchAgents = await User.find({
+        role: 'AGENT',
+        branch: campaign.branch,
+        isActive: true,
+        canReceiveLeads: true,
+      }, '_id');
+      if (branchAgents.length > 0) {
+        campaign.agentIds = branchAgents.map((a) => a._id);
+      }
+    }
+
+    const leadBranch = campaign.branch || targetUser?.branch || null;
 
     // Chunk size: 250 rows per batch
     const CHUNK_SIZE = 250;
@@ -199,6 +219,7 @@ export class LeadIngestService {
           phone: item.normalizedPhone,
           email: item.email,
           source,
+          branch: leadBranch,
           customProperties: item.customProperties,
           assignedTo,
           stage: initialStage.name,

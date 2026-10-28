@@ -34,6 +34,7 @@ export interface ICampaign {
   pipelineId: Types.ObjectId;
   managerId: Types.ObjectId;
   agentIds: Types.ObjectId[];
+  branch?: string | null;
   distributionMode: DistributionMode;
   conditionalRules: IConditionalRule[];
   fallbackAgentId?: Types.ObjectId | null;
@@ -132,6 +133,12 @@ const campaignSchema = new Schema<ICampaignDoc>(
         ref: 'User',
       },
     ],
+    branch: {
+      type: String,
+      default: null,
+      trim: true,
+      index: true,
+    },
     distributionMode: {
       type: String,
       enum: ['EQUAL', 'CONDITIONAL'],

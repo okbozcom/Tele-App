@@ -23,12 +23,17 @@ import {
   FileSpreadsheet,
   CheckCircle2,
   X,
+  Building2,
+  MapPin,
+  Shield,
+  UserCheck,
+  User as UserIcon,
 } from 'lucide-react-native';
 import { useNavigation } from '@react-navigation/native';
 
 import { useAuthStore } from '../store/authStore';
-import { fetchCampaigns, fetchUsers, uploadLeadsCsv } from '../api/leadApi';
-import { Campaign, User as UserType } from '../types';
+import { fetchCampaigns, fetchUsers, fetchBranches, uploadLeadsCsv } from '../api/leadApi';
+import { Campaign, User as UserType, Branch } from '../types';
 import { colors } from '../theme';
 import { CrmShell } from '../components/CrmShell';
 import { toast } from '../store/toastStore';
@@ -40,16 +45,21 @@ export const UploadLeadsScreen: React.FC = () => {
   const queryClient = useQueryClient();
   const { user } = useAuthStore();
   const isAgent = user?.role === 'AGENT';
+  const isManager = user?.role === 'MANAGER';
+  const isAdmin = user?.role === 'ADMIN';
+
+  // Branch Selection: Managers locked to their branch; Admin can select any branch or ALL
+  const [selectedBranch, setSelectedBranch] = useState<string>(
+    isManager && user?.branch ? user.branch : 'ALL',
+  );
 
   const [selectedCampaignName, setSelectedCampaignName] = useState('');
   const [selectedCampaignId, setSelectedCampaignId] = useState<string>('');
   const [showCampaignDropdown, setShowCampaignDropdown] = useState(false);
 
-  // Assignment selection: null means "Auto distribute"
-  const [selectedAgent, setSelectedAgent] = useState<{ id: string | null; name: string }>({
-    id: null,
-    name: 'Auto distribute (Round Robin)',
-  });
+  // NeoDove Distribution Strategy: ROUND_ROBIN | MANAGER | SPECIFIC_AGENT
+  const [strategy, setStrategy] = useState<'ROUND_ROBIN' | 'MANAGER' | 'SPECIFIC_AGENT'>('ROUND_ROBIN');
+  const [selectedAgentId, setSelectedAgentId] = useState<string | null>(null);
   const [showAgentDropdown, setShowAgentDropdown] = useState(false);
 
   const [pickedFile, setPickedFile] = useState<{
@@ -66,6 +76,56 @@ export const UploadLeadsScreen: React.FC = () => {
   } | null>(null);
 
   // Queries
+  const { data: branchesData } = useQuery({
+    queryKey: ['adminBranches'],
+    queryFn: fetchBranches,
+    enabled: !isAgent,
+  });
+  const branchesList: Branch[] = branchesData?.branches || [];
+
+  const { data: usersData } = useQuery({
+    queryKey: ['adminUsers'],
+    queryFn: () => fetchUsers(),
+    enabled: !isAgent,
+  });
+  const allUsers: UserType[] = usersData?.users || [];
+
+  const availableBranches = React.useMemo(() => {
+    const list = branchesList.map((b) => b.name);
+    const fromUsers = allUsers.map((u) => u.branch).filter(Boolean) as string[];
+    const defaults = ['Coimbatore', 'Trichy', 'Pudukkottai', 'Chennai', 'Madurai'];
+    return Array.from(new Set([...list, ...fromUsers, ...defaults])).filter(Boolean);
+  }, [branchesList, allUsers]);
+
+  // Branch Manager for the currently selected branch
+  const branchManager = React.useMemo(() => {
+    if (selectedBranch === 'ALL') return null;
+    const managers = allUsers.filter(
+      (u) =>
+        (u.role === 'MANAGER' || u.role === 'ADMIN') &&
+        u.isActive &&
+        u.branch &&
+        u.branch.toLowerCase().trim() === selectedBranch.toLowerCase().trim(),
+    );
+    return managers.length > 0 ? managers[0] : null;
+  }, [allUsers, selectedBranch]);
+
+  // Telecallers in the currently selected branch
+  const branchAgents = React.useMemo(() => {
+    const all = allUsers.filter(
+      (u) => u.role === 'AGENT' && u.isActive && u.canReceiveLeads !== false,
+    );
+    if (selectedBranch === 'ALL') return all;
+    return all.filter(
+      (u) => u.branch && u.branch.toLowerCase().trim() === selectedBranch.toLowerCase().trim(),
+    );
+  }, [allUsers, selectedBranch]);
+
+  const selectedAgent = React.useMemo(() => {
+    if (!selectedAgentId) return null;
+    return branchAgents.find((u) => ((u as any).id || u._id) === selectedAgentId) || null;
+  }, [branchAgents, selectedAgentId]);
+
   const { data: campaignsData } = useQuery({
     queryKey: ['adminCampaigns'],
     queryFn: fetchCampaigns,
@@ -73,35 +133,41 @@ export const UploadLeadsScreen: React.FC = () => {
   });
   const campaignsList: Campaign[] = campaignsData?.campaigns || [];
 
-  React.useEffect(() => {
-    if (campaignsList.length > 0 && !selectedCampaignId) {
-      setSelectedCampaignId(campaignsList[0]._id);
-      setSelectedCampaignName(campaignsList[0].name);
-    }
+  const filteredCampaigns = React.useMemo(() => {
+    if (selectedBranch === 'ALL') return campaignsList;
+    return campaignsList.filter(
+      (c) =>
+        !c.branch ||
+        c.branch.toLowerCase().trim() === selectedBranch.toLowerCase().trim(),
+    );
+  }, [campaignsList, selectedBranch]);
+
+  const selectedCampaign = React.useMemo(() => {
+    return campaignsList.find((c) => c._id === selectedCampaignId) || null;
   }, [campaignsList, selectedCampaignId]);
 
-  const { data: usersData } = useQuery({
-    queryKey: ['adminUsers'],
-    queryFn: () => fetchUsers(),
-    enabled: !isAgent,
-  });
-  const agentsList: UserType[] = (usersData?.users || []).filter(
-    (u) => u.role === 'AGENT' && u.isActive,
-  );
-
-  const agentOptions = React.useMemo(() => {
-    const list = agentsList;
-    const seen = new Set<string>();
-    const unique: Array<{ id: string; name: string; branch?: string }> = [];
-    for (const a of list) {
-      const key = a.name.toLowerCase().trim();
-      if (!seen.has(key)) {
-        seen.add(key);
-        unique.push({ id: (a as any).id || (a as any)._id, name: a.name, branch: (a as any).branch });
-      }
+  const resolvedTargetName = React.useMemo(() => {
+    if (strategy === 'SPECIFIC_AGENT') {
+      return selectedAgent ? selectedAgent.name : 'Select Telecaller';
     }
-    return unique;
-  }, [agentsList]);
+    if (strategy === 'MANAGER') {
+      return branchManager ? `${branchManager.name} (${selectedBranch} Manager)` : 'Branch Manager (Not assigned)';
+    }
+    return `Round Robin (${branchAgents.length} Agents)`;
+  }, [strategy, selectedAgent, branchManager, branchAgents, selectedBranch]);
+
+  React.useEffect(() => {
+    if (filteredCampaigns.length > 0) {
+      const match = filteredCampaigns.find((c) => c._id === selectedCampaignId);
+      if (!match) {
+        setSelectedCampaignId(filteredCampaigns[0]._id);
+        setSelectedCampaignName(filteredCampaigns[0].name);
+      }
+    } else {
+      setSelectedCampaignId('');
+      setSelectedCampaignName('');
+    }
+  }, [filteredCampaigns, selectedCampaignId]);
 
   // Handle Document Picker
   const handlePickDocument = async () => {
@@ -132,8 +198,27 @@ export const UploadLeadsScreen: React.FC = () => {
       if (!pickedFile) throw new Error('Please pick a CSV file first');
 
       const formData = new FormData();
-      if (selectedAgent.id) {
-        formData.append('targetAgentId', selectedAgent.id);
+      let resolvedTargetId: string | null = null;
+
+      if (strategy === 'SPECIFIC_AGENT') {
+        if (!selectedAgentId) {
+          throw new Error('Please select a specific telecaller from the list.');
+        }
+        resolvedTargetId = selectedAgentId;
+      } else if (strategy === 'MANAGER') {
+        const mgrId = branchManager?._id || (branchManager as any)?.id;
+        if (!mgrId) {
+          throw new Error(
+            selectedBranch === 'ALL'
+              ? 'Please select a specific branch first to assign to its Branch Manager.'
+              : `No Branch Manager found for ${selectedBranch}. Please assign a manager or choose Round Robin.`,
+          );
+        }
+        resolvedTargetId = mgrId;
+      }
+
+      if (resolvedTargetId) {
+        formData.append('targetAgentId', resolvedTargetId);
       }
 
       if (Platform.OS === 'web') {
@@ -150,7 +235,7 @@ export const UploadLeadsScreen: React.FC = () => {
         } as any);
       }
 
-      const activeCampId = selectedCampaignId || campaignsList[0]?._id;
+      const activeCampId = selectedCampaignId || filteredCampaigns[0]?._id;
 
       if (!activeCampId) {
         throw new Error('Please select an active campaign before uploading leads.');
@@ -176,12 +261,24 @@ export const UploadLeadsScreen: React.FC = () => {
         5000,
       );
 
-      // Record agent assignment notification so agent's dashboard shows notification
+      // Record agent assignment notification
       try {
+        let notifTargetId: string | null = null;
+        let notifTargetName = 'Round Robin';
+        if (strategy === 'SPECIFIC_AGENT') {
+          notifTargetId = selectedAgentId;
+          notifTargetName = selectedAgent?.name || 'Selected Telecaller';
+        } else if (strategy === 'MANAGER') {
+          notifTargetId = branchManager?._id || (branchManager as any)?.id || null;
+          notifTargetName = branchManager ? `${branchManager.name} (Manager)` : 'Branch Manager';
+        } else {
+          notifTargetName = `Round Robin (${branchAgents.length} Agents)`;
+        }
+
         const notif = {
           id: 'assign-' + Date.now(),
-          targetAgentId: selectedAgent.id,
-          targetAgentName: selectedAgent.name,
+          targetAgentId: notifTargetId,
+          targetAgentName: notifTargetName,
           campaignName: selectedCampaignName,
           count: createdCount,
           assignedBy: user?.name || 'Admin',
@@ -299,19 +396,109 @@ export const UploadLeadsScreen: React.FC = () => {
         <View style={styles.contentLayout}>
           {/* Form Card */}
           <View style={styles.formCard}>
-            {/* Step 1: Select a campaign */}
+            {/* Step 1: Select Branch & Campaign */}
             <View style={styles.stepSection}>
               <View style={styles.stepHeaderRow}>
                 <View style={styles.stepNumberBadge}>
                   <Text style={styles.stepNumberText}>1</Text>
                 </View>
                 <View style={{ flex: 1 }}>
-                  <Text style={styles.stepTitle}>Select a campaign</Text>
-                  <Text style={styles.stepSubtitle}>Choose where your new leads belong.</Text>
+                  <Text style={styles.stepTitle}>Select Branch & Campaign</Text>
+                  <Text style={styles.stepSubtitle}>Filter campaigns and leads by operational branch.</Text>
                 </View>
               </View>
 
-              <Text style={styles.fieldLabel}>Campaign</Text>
+              {/* Branch Selector */}
+              <View style={{ marginBottom: 14 }}>
+                <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
+                  <Text style={styles.fieldLabel}>Branch Location</Text>
+                  {isManager && (
+                    <View style={styles.badgeLocked}>
+                      <Shield size={11} color="#6366F1" />
+                      <Text style={styles.badgeLockedText}>Manager Branch Locked</Text>
+                    </View>
+                  )}
+                </View>
+
+                {isAdmin ? (
+                  <ScrollView
+                    horizontal
+                    showsHorizontalScrollIndicator={false}
+                    contentContainerStyle={{ gap: 8, paddingVertical: 4 }}
+                  >
+                    <TouchableOpacity
+                      style={[
+                        styles.branchFilterChip,
+                        selectedBranch === 'ALL' && styles.branchFilterChipActive,
+                      ]}
+                      onPress={() => setSelectedBranch('ALL')}
+                    >
+                      <Building2 size={13} color={selectedBranch === 'ALL' ? '#FFFFFF' : '#64748B'} />
+                      <Text
+                        style={[
+                          styles.branchFilterChipText,
+                          selectedBranch === 'ALL' && styles.branchFilterChipTextActive,
+                        ]}
+                      >
+                        All Branches
+                      </Text>
+                    </TouchableOpacity>
+
+                    {availableBranches.map((br) => {
+                      const isSel = selectedBranch.toLowerCase().trim() === br.toLowerCase().trim();
+                      return (
+                        <TouchableOpacity
+                          key={br}
+                          style={[styles.branchFilterChip, isSel && styles.branchFilterChipActive]}
+                          onPress={() => setSelectedBranch(br)}
+                        >
+                          <MapPin size={13} color={isSel ? '#FFFFFF' : '#64748B'} />
+                          <Text style={[styles.branchFilterChipText, isSel && styles.branchFilterChipTextActive]}>
+                            {br}
+                          </Text>
+                        </TouchableOpacity>
+                      );
+                    })}
+                  </ScrollView>
+                ) : (
+                  <View style={styles.managerBranchCard}>
+                    <MapPin size={16} color="#4F46E5" />
+                    <Text style={styles.managerBranchName}>{user?.branch || 'Headquarters'}</Text>
+                    <Text style={styles.managerBranchRole}>({user?.role})</Text>
+                  </View>
+                )}
+              </View>
+
+              {/* Branch Info / Manager Card if specific branch is selected */}
+              {selectedBranch !== 'ALL' && (
+                <View style={styles.branchInfoCard}>
+                  <View style={styles.branchInfoTopRow}>
+                    <View style={styles.branchManagerAvatar}>
+                      <UserCheck size={18} color="#047857" />
+                    </View>
+                    <View style={{ flex: 1 }}>
+                      <Text style={styles.branchManagerLabel}>Branch Manager</Text>
+                      <Text style={styles.branchManagerName}>
+                        {branchManager ? branchManager.name : 'No Branch Manager Assigned'}
+                      </Text>
+                      {branchManager && (branchManager.phone || branchManager.email) ? (
+                        <Text style={styles.branchManagerContact}>
+                          {branchManager.phone || branchManager.email}
+                        </Text>
+                      ) : null}
+                    </View>
+                    <View style={styles.branchAgentsBadge}>
+                      <Users size={12} color="#2563EB" />
+                      <Text style={styles.branchAgentsBadgeText}>
+                        {branchAgents.length} {branchAgents.length === 1 ? 'Agent' : 'Agents'}
+                      </Text>
+                    </View>
+                  </View>
+                </View>
+              )}
+
+              {/* Campaign Picker */}
+              <Text style={styles.fieldLabel}>Target Campaign</Text>
               <TouchableOpacity
                 style={styles.dropdownTrigger}
                 onPress={() => {
@@ -321,126 +508,242 @@ export const UploadLeadsScreen: React.FC = () => {
                 activeOpacity={0.7}
               >
                 <Text style={styles.dropdownValueText}>
-                  {selectedCampaignName || 'Select a campaign'}
+                  {selectedCampaignName || (filteredCampaigns.length === 0 ? 'No campaigns available' : 'Select a campaign')}
                 </Text>
                 <ChevronDown size={16} color="#64748B" />
               </TouchableOpacity>
 
               {showCampaignDropdown && (
-                <View style={styles.dropdownPopover}>
-                  {campaignsList.length === 0 ? (
-                    <View style={{ padding: 12 }}>
-                      <Text style={{ fontSize: 13, color: '#64748B' }}>No campaigns available</Text>
-                    </View>
-                  ) : (
-                    campaignsList.map((c) => (
-                      <TouchableOpacity
-                        key={c._id}
-                        style={styles.popoverItem}
-                        onPress={() => {
-                          setSelectedCampaignName(c.name);
-                          setSelectedCampaignId(c._id);
-                          setShowCampaignDropdown(false);
-                        }}
-                      >
-                        <Text
-                          style={[
-                            styles.popoverItemText,
-                            selectedCampaignName === c.name && styles.popoverItemTextActive,
-                          ]}
-                        >
-                          {c.name}
+                <View style={styles.dropdownPopoverContained}>
+                  <ScrollView style={{ maxHeight: 200 }} nestedScrollEnabled={true}>
+                    {filteredCampaigns.length === 0 ? (
+                      <View style={{ padding: 14 }}>
+                        <Text style={{ fontSize: 13, color: '#64748B', lineHeight: 18 }}>
+                          No campaigns for {selectedBranch === 'ALL' ? 'this workspace' : selectedBranch}. Create a branch campaign in Campaigns first.
                         </Text>
-                      </TouchableOpacity>
-                    ))
-                  )}
+                      </View>
+                    ) : (
+                      filteredCampaigns.map((c) => {
+                        const isSel = selectedCampaignId === c._id;
+                        return (
+                          <TouchableOpacity
+                            key={c._id}
+                            style={styles.popoverItem}
+                            onPress={() => {
+                              setSelectedCampaignName(c.name);
+                              setSelectedCampaignId(c._id);
+                              setShowCampaignDropdown(false);
+                            }}
+                          >
+                            <View style={{ flex: 1 }}>
+                              <Text
+                                style={[
+                                  styles.popoverItemText,
+                                  isSel && styles.popoverItemTextActive,
+                                ]}
+                              >
+                                {c.name}
+                              </Text>
+                              <Text style={{ fontSize: 11, color: '#94A3B8', marginTop: 2 }}>
+                                {c.branch ? `📍 Branch: ${c.branch}` : '🌐 Global HQ'}
+                              </Text>
+                            </View>
+                            {isSel && <Check size={14} color="#2563EB" strokeWidth={2.5} />}
+                          </TouchableOpacity>
+                        );
+                      })
+                    )}
+                  </ScrollView>
                 </View>
               )}
             </View>
 
-            {/* Step 2: Assign your leads */}
+            {/* Step 2: Distribution Strategy (NeoDove CRM Style) */}
             <View style={styles.stepSection}>
               <View style={styles.stepHeaderRow}>
                 <View style={styles.stepNumberBadge}>
                   <Text style={styles.stepNumberText}>2</Text>
                 </View>
                 <View style={{ flex: 1 }}>
-                  <Text style={styles.stepTitle}>Assign your leads</Text>
+                  <Text style={styles.stepTitle}>Assign Your Leads</Text>
                   <Text style={styles.stepSubtitle}>
-                    Distribute across the team or assign a specific agent.
+                    Choose how leads are distributed (Auto Round-Robin, Manager Desk, or Single Agent).
                   </Text>
                 </View>
               </View>
 
-              <Text style={styles.fieldLabel}>Assigned Agent</Text>
-              <TouchableOpacity
-                style={styles.dropdownTrigger}
-                onPress={() => {
-                  setShowAgentDropdown(!showAgentDropdown);
-                  setShowCampaignDropdown(false);
-                }}
-                activeOpacity={0.7}
-              >
-                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, flex: 1 }}>
-                  <Users size={16} color="#2563EB" />
-                  <Text style={styles.dropdownValueText}>{selectedAgent.name}</Text>
-                </View>
-                <ChevronDown size={16} color="#64748B" />
-              </TouchableOpacity>
-
-              {showAgentDropdown && (
-                <View style={styles.dropdownPopover}>
-                  {/* Auto distribute */}
-                  <TouchableOpacity
-                    style={styles.popoverItem}
-                    onPress={() => {
-                      setSelectedAgent({ id: null, name: 'Auto distribute (Round Robin)' });
-                      setShowAgentDropdown(false);
-                    }}
-                  >
-                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, flex: 1 }}>
-                      <Users size={15} color="#2563EB" />
-                      <Text
-                        style={[
-                          styles.popoverItemText,
-                          selectedAgent.id === null && styles.popoverItemTextActive,
-                        ]}
-                      >
-                        Auto distribute (Round Robin)
+              <View style={{ gap: 10, marginTop: 4 }}>
+                {/* Option 1: Round Robin */}
+                <TouchableOpacity
+                  style={[
+                    styles.strategyCard,
+                    strategy === 'ROUND_ROBIN' && styles.strategyCardActive,
+                  ]}
+                  onPress={() => {
+                    setStrategy('ROUND_ROBIN');
+                    setSelectedAgentId(null);
+                    setShowAgentDropdown(false);
+                  }}
+                  activeOpacity={0.8}
+                >
+                  <View style={styles.strategyRadio}>
+                    {strategy === 'ROUND_ROBIN' && <View style={styles.strategyRadioInner} />}
+                  </View>
+                  <View style={{ flex: 1 }}>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+                      <Text style={[styles.strategyTitle, strategy === 'ROUND_ROBIN' && styles.strategyTitleActive]}>
+                        Auto Distribute (Round Robin)
                       </Text>
+                      <View style={styles.strategyTag}>
+                        <Text style={styles.strategyTagText}>{branchAgents.length} Active</Text>
+                      </View>
                     </View>
-                    {selectedAgent.id === null && <Check size={14} color="#2563EB" strokeWidth={2.5} />}
-                  </TouchableOpacity>
+                    <Text style={styles.strategyDesc}>
+                      Divides leads equally across all active telecallers in {selectedBranch === 'ALL' ? 'the team' : selectedBranch}.
+                    </Text>
+                  </View>
+                </TouchableOpacity>
 
-                  {/* Individual Agents */}
-                  {agentOptions.map((agent) => {
-                    const isSelected = selectedAgent.id === agent.id;
-                    return (
-                      <TouchableOpacity
-                        key={agent.id}
-                        style={styles.popoverItem}
-                        onPress={() => {
-                          setSelectedAgent({ id: agent.id, name: agent.name });
-                          setShowAgentDropdown(false);
-                        }}
-                      >
-                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, flex: 1 }}>
-                          <Users size={15} color="#64748B" />
-                          <Text
-                            style={[
-                              styles.popoverItemText,
-                              isSelected && styles.popoverItemTextActive,
-                            ]}
-                          >
-                            {agent.name} {agent.branch ? `(${agent.branch})` : ''}
+                {/* Option 2: Assign to Branch Manager */}
+                <TouchableOpacity
+                  style={[
+                    styles.strategyCard,
+                    strategy === 'MANAGER' && styles.strategyCardActive,
+                  ]}
+                  onPress={() => {
+                    setStrategy('MANAGER');
+                    setSelectedAgentId(null);
+                    setShowAgentDropdown(false);
+                  }}
+                  activeOpacity={0.8}
+                >
+                  <View style={styles.strategyRadio}>
+                    {strategy === 'MANAGER' && <View style={styles.strategyRadioInner} />}
+                  </View>
+                  <View style={{ flex: 1 }}>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+                      <Text style={[styles.strategyTitle, strategy === 'MANAGER' && styles.strategyTitleActive]}>
+                        Assign to Branch Manager Desk
+                      </Text>
+                      {branchManager && (
+                        <View style={[styles.strategyTag, { backgroundColor: '#ECFDF5' }]}>
+                          <Text style={[styles.strategyTagText, { color: '#047857' }]}>
+                            {branchManager.name}
                           </Text>
                         </View>
-                        {isSelected && <Check size={14} color="#2563EB" strokeWidth={2.5} />}
-                      </TouchableOpacity>
-                    );
-                  })}
-                </View>
-              )}
+                      )}
+                    </View>
+                    <Text style={styles.strategyDesc}>
+                      All leads go directly to {branchManager ? branchManager.name : 'the Branch Manager'}. The manager can review and reassign batches to agents later.
+                    </Text>
+                  </View>
+                </TouchableOpacity>
+
+                {/* Option 3: Specific Telecaller */}
+                <TouchableOpacity
+                  style={[
+                    styles.strategyCard,
+                    strategy === 'SPECIFIC_AGENT' && styles.strategyCardActive,
+                  ]}
+                  onPress={() => {
+                    setStrategy('SPECIFIC_AGENT');
+                    if (!selectedAgentId && branchAgents.length > 0) {
+                      setSelectedAgentId((branchAgents[0] as any).id || branchAgents[0]._id);
+                    }
+                  }}
+                  activeOpacity={0.8}
+                >
+                  <View style={styles.strategyRadio}>
+                    {strategy === 'SPECIFIC_AGENT' && <View style={styles.strategyRadioInner} />}
+                  </View>
+                  <View style={{ flex: 1 }}>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+                      <Text style={[styles.strategyTitle, strategy === 'SPECIFIC_AGENT' && styles.strategyTitleActive]}>
+                        Assign to Specific Telecaller
+                      </Text>
+                      {selectedAgent && (
+                        <View style={[styles.strategyTag, { backgroundColor: '#EFF6FF' }]}>
+                          <Text style={[styles.strategyTagText, { color: '#1E40AF' }]}>
+                            {selectedAgent.name}
+                          </Text>
+                        </View>
+                      )}
+                    </View>
+                    <Text style={styles.strategyDesc}>
+                      Direct 100% of uploaded numbers exclusively to one selected agent.
+                    </Text>
+                  </View>
+                </TouchableOpacity>
+
+                {/* Agent Dropdown if SPECIFIC_AGENT is selected */}
+                {strategy === 'SPECIFIC_AGENT' && (
+                  <View style={styles.specificAgentBox}>
+                    <Text style={styles.fieldLabel}>Select Telecaller ({branchAgents.length} available)</Text>
+                    <TouchableOpacity
+                      style={styles.dropdownTrigger}
+                      onPress={() => setShowAgentDropdown(!showAgentDropdown)}
+                      activeOpacity={0.7}
+                    >
+                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, flex: 1 }}>
+                        <Users size={16} color="#2563EB" />
+                        <Text style={styles.dropdownValueText}>
+                          {selectedAgent
+                            ? `${selectedAgent.name} ${selectedAgent.phone ? `(${selectedAgent.phone})` : ''}`
+                            : 'Choose an agent'}
+                        </Text>
+                      </View>
+                      <ChevronDown size={16} color="#64748B" />
+                    </TouchableOpacity>
+
+                    {showAgentDropdown && (
+                      <View style={styles.dropdownPopoverContained}>
+                        <ScrollView style={{ maxHeight: 180 }} nestedScrollEnabled={true}>
+                          {branchAgents.length === 0 ? (
+                            <View style={{ padding: 12 }}>
+                              <Text style={{ fontSize: 13, color: '#64748B' }}>
+                                No active telecallers found in {selectedBranch === 'ALL' ? 'the workspace' : selectedBranch}.
+                              </Text>
+                            </View>
+                          ) : (
+                            branchAgents.map((ag) => {
+                              const agId = (ag as any).id || ag._id;
+                              const isSel = selectedAgentId === agId;
+                              return (
+                                <TouchableOpacity
+                                  key={agId}
+                                  style={styles.popoverItem}
+                                  onPress={() => {
+                                    setSelectedAgentId(agId);
+                                    setShowAgentDropdown(false);
+                                  }}
+                                >
+                                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, flex: 1 }}>
+                                    <Users size={15} color={isSel ? '#2563EB' : '#64748B'} />
+                                    <View>
+                                      <Text
+                                        style={[
+                                          styles.popoverItemText,
+                                          isSel && styles.popoverItemTextActive,
+                                        ]}
+                                      >
+                                        {ag.name}
+                                      </Text>
+                                      <Text style={{ fontSize: 10.5, color: '#94A3B8' }}>
+                                        {ag.branch ? `Branch: ${ag.branch}` : 'Unassigned Branch'} • {ag.phone || ag.email}
+                                      </Text>
+                                    </View>
+                                  </View>
+                                  {isSel && <Check size={14} color="#2563EB" strokeWidth={2.5} />}
+                                </TouchableOpacity>
+                              );
+                            })
+                          )}
+                        </ScrollView>
+                      </View>
+                    )}
+                  </View>
+                )}
+              </View>
             </View>
 
             {/* Step 3: Upload your CSV */}
@@ -450,8 +753,24 @@ export const UploadLeadsScreen: React.FC = () => {
                   <Text style={styles.stepNumberText}>3</Text>
                 </View>
                 <View style={{ flex: 1 }}>
-                  <Text style={styles.stepTitle}>Upload your CSV</Text>
-                  <Text style={styles.stepSubtitle}>Name and phone columns are required.</Text>
+                  <Text style={styles.stepTitle}>Upload CSV & Distribute</Text>
+                  <Text style={styles.stepSubtitle}>CSV requires name and phone columns.</Text>
+                </View>
+              </View>
+
+              {/* Assignment Summary Bar */}
+              <View style={styles.assignmentSummaryBar}>
+                <View style={styles.summaryBarPill}>
+                  <MapPin size={12} color="#4F46E5" />
+                  <Text style={styles.summaryBarPillText}>{selectedBranch === 'ALL' ? 'All Branches' : selectedBranch}</Text>
+                </View>
+                <View style={styles.summaryBarPill}>
+                  <FileSpreadsheet size={12} color="#059669" />
+                  <Text style={styles.summaryBarPillText}>{selectedCampaignName || 'Campaign'}</Text>
+                </View>
+                <View style={[styles.summaryBarPill, { flex: 1 }]}>
+                  <UserIcon size={12} color="#D97706" />
+                  <Text style={styles.summaryBarPillText} numberOfLines={1}>{resolvedTargetName}</Text>
                 </View>
               </View>
 
@@ -459,35 +778,23 @@ export const UploadLeadsScreen: React.FC = () => {
               <TouchableOpacity
                 onPress={handlePickDocument}
                 activeOpacity={0.7}
-                style={{
-                  borderWidth: 2,
-                  borderColor: pickedFile ? '#10B981' : '#CBD5E1',
-                  borderStyle: 'dashed',
-                  borderRadius: 14,
-                  padding: 20,
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  backgroundColor: pickedFile ? '#F0FDF4' : '#F8FAFC',
-                  marginBottom: 16,
-                }}
+                style={[
+                  styles.dottedDropzoneBox,
+                  pickedFile && styles.dottedDropzoneBoxReady,
+                ]}
               >
                 <View
-                  style={{
-                    width: 52,
-                    height: 52,
-                    borderRadius: 26,
-                    backgroundColor: pickedFile ? '#DCFCE7' : '#EFF6FF',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    marginBottom: 10,
-                  }}
+                  style={[
+                    styles.dropzoneIconCircle,
+                    pickedFile && styles.dropzoneIconCircleReady,
+                  ]}
                 >
                   <UploadCloud size={26} color={pickedFile ? '#10B981' : '#4F46E5'} />
                 </View>
-                <Text style={{ fontSize: 14, fontWeight: '800', color: '#0F172A', textAlign: 'center' }}>
+                <Text style={styles.dropzoneTitleText}>
                   {pickedFile ? pickedFile.name : 'Tap to Select CSV File'}
                 </Text>
-                <Text style={{ fontSize: 12, color: '#64748B', marginTop: 4, textAlign: 'center' }}>
+                <Text style={styles.dropzoneSubText}>
                   {pickedFile
                     ? `Ready for ingest (${pickedFile.size ? (pickedFile.size / 1024).toFixed(1) + ' KB' : 'Standard CSV'})`
                     : 'Standard CSV with columns: name, phone'}
@@ -499,21 +806,10 @@ export const UploadLeadsScreen: React.FC = () => {
                       e.stopPropagation();
                       setPickedFile(null);
                     }}
-                    style={{
-                      flexDirection: 'row',
-                      alignItems: 'center',
-                      gap: 4,
-                      marginTop: 10,
-                      paddingHorizontal: 10,
-                      paddingVertical: 4,
-                      borderRadius: 20,
-                      backgroundColor: '#FEE2E2',
-                    }}
+                    style={styles.clearFileBtn}
                   >
                     <X size={12} color="#EF4444" />
-                    <Text style={{ fontSize: 11, fontWeight: '700', color: '#DC2626' }}>
-                      Clear File
-                    </Text>
+                    <Text style={styles.clearFileBtnText}>Clear File</Text>
                   </TouchableOpacity>
                 )}
               </TouchableOpacity>
@@ -523,52 +819,25 @@ export const UploadLeadsScreen: React.FC = () => {
                 onPress={() => uploadMutation.mutate()}
                 disabled={uploadMutation.isPending || !pickedFile}
                 activeOpacity={0.8}
-                style={{
-                  height: 52,
-                  backgroundColor: pickedFile && !uploadMutation.isPending ? '#10B981' : '#94A3B8',
-                  borderRadius: 12,
-                  flexDirection: 'row',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  gap: 8,
-                  shadowColor: '#10B981',
-                  shadowOffset: { width: 0, height: 2 },
-                  shadowOpacity: pickedFile ? 0.25 : 0,
-                  shadowRadius: 4,
-                  elevation: pickedFile ? 3 : 0,
-                }}
+                style={[
+                  styles.primarySubmitBtn,
+                  (!pickedFile || uploadMutation.isPending) && styles.primarySubmitBtnDisabled,
+                ]}
               >
                 {uploadMutation.isPending ? (
                   <ActivityIndicator size="small" color="#FFFFFF" />
                 ) : (
                   <>
                     <UploadCloud size={18} color="#FFFFFF" strokeWidth={2.5} />
-                    <Text style={{ fontSize: 15, fontWeight: '800', color: '#FFFFFF' }}>
-                      Upload & Distribute Leads
-                    </Text>
+                    <Text style={styles.primarySubmitBtnText}>Upload & Distribute Leads</Text>
                   </>
                 )}
               </TouchableOpacity>
             </View>
           </View>
 
-          {/* Distribution Preview Card */}
-          <View
-            style={{
-              flex: 1.2,
-              minWidth: 280,
-              backgroundColor: '#FFFFFF',
-              borderWidth: 1,
-              borderColor: '#E2E8F0',
-              borderRadius: 14,
-              padding: 18,
-              shadowColor: '#0F172A',
-              shadowOffset: { width: 0, height: 1 },
-              shadowOpacity: 0.05,
-              shadowRadius: 3,
-              elevation: 2,
-            }}
-          >
+          {/* Distribution Preview Card (Right Column) */}
+          <View style={styles.previewCard}>
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 12 }}>
               <Users size={18} color="#4F46E5" />
               <Text style={{ fontSize: 14, fontWeight: '800', color: '#0F172A' }}>
@@ -576,75 +845,88 @@ export const UploadLeadsScreen: React.FC = () => {
               </Text>
             </View>
 
-            <Text style={{ fontSize: 12, color: '#64748B', marginBottom: 12 }}>
-              Target Campaign: <Text style={{ fontWeight: '700', color: '#0F172A' }}>{selectedCampaignName}</Text>
-            </Text>
+            <View style={{ gap: 10, marginBottom: 16 }}>
+              <View style={styles.previewMetaRow}>
+                <Text style={styles.previewMetaLabel}>Target Branch</Text>
+                <View style={styles.previewMetaValuePill}>
+                  <MapPin size={11} color="#4F46E5" />
+                  <Text style={styles.previewMetaValue}>{selectedBranch === 'ALL' ? 'All Branches' : selectedBranch}</Text>
+                </View>
+              </View>
 
-            {/* Active Routing Mode */}
-            <View
-              style={{
-                backgroundColor: '#F8FAFC',
-                borderRadius: 10,
-                padding: 10,
-                borderWidth: 1,
-                borderColor: '#F1F5F9',
-                marginBottom: 14,
-              }}
-            >
-              <Text style={{ fontSize: 10.5, fontWeight: '700', color: '#64748B', textTransform: 'uppercase' }}>
-                Allocation Mode
-              </Text>
-              <Text style={{ fontSize: 13, fontWeight: '800', color: '#4F46E5', marginTop: 2 }}>
-                {selectedAgent.id ? 'Direct Single Agent' : 'Automatic Round-Robin'}
-              </Text>
+              <View style={styles.previewMetaRow}>
+                <Text style={styles.previewMetaLabel}>Campaign</Text>
+                <Text style={[styles.previewMetaValue, { fontWeight: '700' }]}>{selectedCampaignName || 'None'}</Text>
+              </View>
+
+              <View style={styles.previewMetaRow}>
+                <Text style={styles.previewMetaLabel}>Strategy</Text>
+                <Text style={[styles.previewMetaValue, { color: '#2563EB', fontWeight: '700' }]}>
+                  {strategy === 'ROUND_ROBIN'
+                    ? 'Round Robin'
+                    : strategy === 'MANAGER'
+                    ? 'Branch Manager Desk'
+                    : 'Specific Telecaller'}
+                </Text>
+              </View>
+
+              <View style={styles.previewMetaRow}>
+                <Text style={styles.previewMetaLabel}>Lead Receiver</Text>
+                <Text style={[styles.previewMetaValue, { fontWeight: '800', color: '#059669' }]}>
+                  {resolvedTargetName}
+                </Text>
+              </View>
             </View>
 
             {/* Agent Roster Preview */}
             <Text style={{ fontSize: 11, fontWeight: '700', color: '#64748B', textTransform: 'uppercase', marginBottom: 8 }}>
-              Assigned Queue Receivers
+              Eligible Branch Telecallers ({branchAgents.length})
             </Text>
 
             <View style={{ gap: 8, marginBottom: 16 }}>
-              {selectedAgent.id ? (
-                <View
-                  style={{
-                    flexDirection: 'row',
-                    alignItems: 'center',
-                    justifyContent: 'space-between',
-                    padding: 10,
-                    borderRadius: 8,
-                    backgroundColor: '#ECFDF5',
-                    borderWidth: 1,
-                    borderColor: '#A7F3D0',
-                  }}
-                >
-                  <Text style={{ fontSize: 13, fontWeight: '700', color: '#047857' }}>
-                    {selectedAgent.name}
-                  </Text>
+              {strategy === 'SPECIFIC_AGENT' && selectedAgent ? (
+                <View style={styles.rosterCardTargeted}>
+                  <View>
+                    <Text style={{ fontSize: 13, fontWeight: '700', color: '#047857' }}>
+                      {selectedAgent.name}
+                    </Text>
+                    <Text style={{ fontSize: 10.5, color: '#065F46' }}>
+                      {selectedAgent.phone || selectedAgent.email}
+                    </Text>
+                  </View>
                   <Text style={{ fontSize: 12, fontWeight: '800', color: '#059669' }}>
                     100% Leads
                   </Text>
                 </View>
+              ) : strategy === 'MANAGER' && branchManager ? (
+                <View style={styles.rosterCardTargeted}>
+                  <View>
+                    <Text style={{ fontSize: 13, fontWeight: '700', color: '#047857' }}>
+                      {branchManager.name} (Manager Desk)
+                    </Text>
+                    <Text style={{ fontSize: 10.5, color: '#065F46' }}>
+                      Receives batch for subsequent agent assignment
+                    </Text>
+                  </View>
+                  <Text style={{ fontSize: 12, fontWeight: '800', color: '#059669' }}>
+                    100% Leads
+                  </Text>
+                </View>
+              ) : branchAgents.length === 0 ? (
+                <View style={{ padding: 12, backgroundColor: '#FEF2F2', borderRadius: 8 }}>
+                  <Text style={{ fontSize: 12, color: '#DC2626' }}>
+                    No active agents in {selectedBranch === 'ALL' ? 'the workspace' : selectedBranch}.
+                  </Text>
+                </View>
               ) : (
-                agentOptions.slice(0, 4).map((ag) => {
-                  const pct = Math.round(100 / Math.min(agentOptions.length, 4));
+                branchAgents.slice(0, 5).map((ag) => {
+                  const pct = Math.round(100 / Math.min(branchAgents.length, 5));
+                  const agId = (ag as any).id || ag._id;
                   return (
-                    <View
-                      key={ag.id}
-                      style={{
-                        flexDirection: 'row',
-                        alignItems: 'center',
-                        justifyContent: 'space-between',
-                        padding: 10,
-                        borderRadius: 8,
-                        backgroundColor: '#F8FAFC',
-                        borderWidth: 1,
-                        borderColor: '#E2E8F0',
-                      }}
-                    >
-                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                    <View key={agId} style={styles.rosterAgentRow}>
+                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, flex: 1 }}>
                         <View style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: '#10B981' }} />
-                        <Text style={{ fontSize: 12.5, fontWeight: '700', color: '#0F172A' }}>
+                        <Text style={{ fontSize: 12.5, fontWeight: '700', color: '#0F172A' }} numberOfLines={1}>
                           {ag.name}
                         </Text>
                         {ag.branch && (
@@ -671,6 +953,10 @@ export const UploadLeadsScreen: React.FC = () => {
               <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
                 <Check size={13} color="#10B981" />
                 <Text style={{ fontSize: 11.5, color: '#64748B' }}>Immediate push notification to callers</Text>
+              </View>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                <Check size={13} color="#10B981" />
+                <Text style={{ fontSize: 11.5, color: '#64748B' }}>Branch-level isolation strictly enforced</Text>
               </View>
             </View>
           </View>
@@ -974,6 +1260,361 @@ const styles = StyleSheet.create({
     fontSize: 13,
     color: '#0F172A',
     fontWeight: '600',
+  },
+  badgeLocked: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    backgroundColor: '#EEF2FF',
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 6,
+  },
+  badgeLockedText: {
+    fontSize: 10,
+    fontWeight: '700',
+    color: '#4F46E5',
+  },
+  branchFilterChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingVertical: 6,
+    paddingHorizontal: 12,
+    borderRadius: 8,
+    backgroundColor: '#FFFFFF',
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+  },
+  branchFilterChipActive: {
+    backgroundColor: '#2563EB',
+    borderColor: '#2563EB',
+  },
+  branchFilterChipText: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: '#475569',
+  },
+  branchFilterChipTextActive: {
+    color: '#FFFFFF',
+    fontWeight: '700',
+  },
+  managerBranchCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    backgroundColor: '#EEF2FF',
+    borderWidth: 1,
+    borderColor: '#C7D2FE',
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    borderRadius: 8,
+  },
+  managerBranchName: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: '#3730A3',
+  },
+  managerBranchRole: {
+    fontSize: 11,
+    color: '#6366F1',
+    fontWeight: '600',
+  },
+  branchInfoCard: {
+    backgroundColor: '#F0FDF4',
+    borderWidth: 1,
+    borderColor: '#BBF7D0',
+    borderRadius: 10,
+    padding: 12,
+    marginBottom: 14,
+  },
+  branchInfoTopRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+  },
+  branchManagerAvatar: {
+    width: 34,
+    height: 34,
+    borderRadius: 17,
+    backgroundColor: '#DCFCE7',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  branchManagerLabel: {
+    fontSize: 9.5,
+    fontWeight: '700',
+    color: '#15803D',
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
+  },
+  branchManagerName: {
+    fontSize: 13,
+    fontWeight: '800',
+    color: '#0F172A',
+  },
+  branchManagerContact: {
+    fontSize: 11,
+    color: '#64748B',
+  },
+  branchAgentsBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    backgroundColor: '#EFF6FF',
+    borderWidth: 1,
+    borderColor: '#DBEAFE',
+    paddingVertical: 4,
+    paddingHorizontal: 8,
+    borderRadius: 6,
+  },
+  branchAgentsBadgeText: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: '#1E40AF',
+  },
+  dropdownPopoverContained: {
+    backgroundColor: '#FFFFFF',
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+    borderRadius: 8,
+    marginTop: 4,
+    overflow: 'hidden',
+    zIndex: 100,
+    elevation: 4,
+    shadowColor: '#0F172A',
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.1,
+    shadowRadius: 6,
+  },
+  strategyCard: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 10,
+    padding: 12,
+    borderRadius: 10,
+    borderWidth: 1.5,
+    borderColor: '#E2E8F0',
+    backgroundColor: '#FFFFFF',
+  },
+  strategyCardActive: {
+    borderColor: '#3B82F6',
+    backgroundColor: '#F8FAFC',
+  },
+  strategyRadio: {
+    width: 18,
+    height: 18,
+    borderRadius: 9,
+    borderWidth: 2,
+    borderColor: '#94A3B8',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginTop: 2,
+  },
+  strategyRadioInner: {
+    width: 9,
+    height: 9,
+    borderRadius: 4.5,
+    backgroundColor: '#2563EB',
+  },
+  strategyTitle: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: '#0F172A',
+  },
+  strategyTitleActive: {
+    color: '#1D4ED8',
+    fontWeight: '800',
+  },
+  strategyDesc: {
+    fontSize: 11,
+    color: '#64748B',
+    marginTop: 3,
+    lineHeight: 16,
+  },
+  strategyTag: {
+    backgroundColor: '#F1F5F9',
+    paddingHorizontal: 7,
+    paddingVertical: 2,
+    borderRadius: 6,
+  },
+  strategyTagText: {
+    fontSize: 10,
+    fontWeight: '700',
+    color: '#475569',
+  },
+  specificAgentBox: {
+    marginTop: 10,
+    paddingTop: 10,
+    borderTopWidth: 1,
+    borderTopColor: '#F1F5F9',
+  },
+  assignmentSummaryBar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    marginBottom: 12,
+    backgroundColor: '#F8FAFC',
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+    borderRadius: 8,
+    padding: 8,
+    flexWrap: 'wrap',
+  },
+  summaryBarPill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    backgroundColor: '#FFFFFF',
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 6,
+  },
+  summaryBarPillText: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: '#334155',
+  },
+  dottedDropzoneBox: {
+    borderWidth: 2,
+    borderColor: '#CBD5E1',
+    borderStyle: 'dashed',
+    borderRadius: 14,
+    padding: 20,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#F8FAFC',
+    marginBottom: 16,
+  },
+  dottedDropzoneBoxReady: {
+    borderColor: '#10B981',
+    backgroundColor: '#F0FDF4',
+  },
+  dropzoneIconCircle: {
+    width: 52,
+    height: 52,
+    borderRadius: 26,
+    backgroundColor: '#EFF6FF',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 10,
+  },
+  dropzoneIconCircleReady: {
+    backgroundColor: '#DCFCE7',
+  },
+  dropzoneTitleText: {
+    fontSize: 14,
+    fontWeight: '800',
+    color: '#0F172A',
+    textAlign: 'center',
+  },
+  dropzoneSubText: {
+    fontSize: 12,
+    color: '#64748B',
+    marginTop: 4,
+    textAlign: 'center',
+  },
+  clearFileBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    marginTop: 10,
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 20,
+    backgroundColor: '#FEE2E2',
+  },
+  clearFileBtnText: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: '#DC2626',
+  },
+  primarySubmitBtn: {
+    height: 52,
+    backgroundColor: '#10B981',
+    borderRadius: 12,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    shadowColor: '#10B981',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.25,
+    shadowRadius: 4,
+    elevation: 3,
+  },
+  primarySubmitBtnDisabled: {
+    backgroundColor: '#94A3B8',
+    shadowOpacity: 0,
+    elevation: 0,
+  },
+  primarySubmitBtnText: {
+    fontSize: 15,
+    fontWeight: '800',
+    color: '#FFFFFF',
+  },
+  previewCard: {
+    flex: 1.2,
+    minWidth: 280,
+    backgroundColor: '#FFFFFF',
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+    borderRadius: 14,
+    padding: 18,
+    shadowColor: '#0F172A',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.05,
+    shadowRadius: 3,
+    elevation: 2,
+  },
+  previewMetaRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingVertical: 4,
+    borderBottomWidth: 1,
+    borderBottomColor: '#F8FAFC',
+  },
+  previewMetaLabel: {
+    fontSize: 11.5,
+    color: '#64748B',
+    fontWeight: '600',
+  },
+  previewMetaValue: {
+    fontSize: 12.5,
+    color: '#0F172A',
+    fontWeight: '600',
+  },
+  previewMetaValuePill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    backgroundColor: '#EFF6FF',
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 6,
+  },
+  rosterCardTargeted: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    padding: 10,
+    borderRadius: 8,
+    backgroundColor: '#ECFDF5',
+    borderWidth: 1,
+    borderColor: '#A7F3D0',
+  },
+  rosterAgentRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    padding: 8,
+    borderRadius: 8,
+    backgroundColor: '#F8FAFC',
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
   },
   dropdownPopover: {
     backgroundColor: '#FFFFFF',

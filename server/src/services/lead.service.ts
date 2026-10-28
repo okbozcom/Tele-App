@@ -130,7 +130,12 @@ export class LeadService {
         matchStage.campaignId = new Types.ObjectId(query.campaignId);
       }
     } else if (requester.role === 'MANAGER') {
-      const managedCampaigns = await Campaign.find({ managerId: requester._id }, '_id');
+      const managedCampaigns = await Campaign.find({
+        $or: [
+          { managerId: requester._id },
+          ...(requester.branch ? [{ branch: requester.branch }] : []),
+        ],
+      }, '_id');
       const managedIds = managedCampaigns.map((c) => c._id);
       if (query.campaignId) {
         if (!Types.ObjectId.isValid(query.campaignId)) {
@@ -433,13 +438,22 @@ export class LeadService {
       if (!campaign) {
         throw new AppError('Campaign not found', 404);
       }
-      if (requester.role === 'MANAGER' && campaign.managerId.toString() !== requester._id.toString()) {
-        throw new AppError('Forbidden: You do not manage this campaign', 403);
+      if (requester.role === 'MANAGER') {
+        const isOwner = campaign.managerId.toString() === requester._id.toString();
+        const isBranchMatch = Boolean(requester.branch && campaign.branch && requester.branch === campaign.branch);
+        if (!isOwner && !isBranchMatch) {
+          throw new AppError('Forbidden: You do not manage this campaign', 403);
+        }
       }
       filter.campaignId = new Types.ObjectId(campaignId);
     } else if (requester.role === 'MANAGER') {
-      // Limit to campaigns managed by this manager
-      const managedCampaigns = await Campaign.find({ managerId: requester._id }, '_id');
+      // Limit to campaigns managed by this manager or their branch
+      const managedCampaigns = await Campaign.find({
+        $or: [
+          { managerId: requester._id },
+          ...(requester.branch ? [{ branch: requester.branch }] : []),
+        ],
+      }, '_id');
       const managedIds = managedCampaigns.map((c) => c._id);
       filter.campaignId = { $in: managedIds };
     }

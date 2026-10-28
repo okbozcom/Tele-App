@@ -10,6 +10,7 @@ import {
   TextInput,
   StyleSheet,
   Modal,
+  Platform,
 } from 'react-native';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
@@ -18,6 +19,7 @@ import {
   Plus,
   X,
   Edit2,
+  Trash2,
   MapPin,
   Shield,
   ShieldAlert,
@@ -32,6 +34,7 @@ import {
   fetchUsers,
   createUser,
   updateUser,
+  deleteUser,
   fetchBranches,
   createBranch,
   deleteBranch,
@@ -143,6 +146,47 @@ export const TeamScreen: React.FC = () => {
       Alert.alert('Update Failed', msg);
     },
   });
+
+  const deleteMutation = useMutation({
+    mutationFn: (id: string) => deleteUser(id),
+    onSuccess: (res) => {
+      queryClient.invalidateQueries({ queryKey: ['adminUsers'] });
+      Alert.alert('Member Deleted', res.message || 'Team member has been removed.');
+    },
+    onError: (err: any) => {
+      const msg = err?.response?.data?.message || err?.message || 'Failed to delete member';
+      Alert.alert('Delete Failed', msg);
+    },
+  });
+
+  const handleDeleteMember = (member: DisplayMember) => {
+    if (member._id === currentUser?._id) {
+      Alert.alert('Action Denied', 'You cannot delete your own account.');
+      return;
+    }
+
+    const confirmAction = () => {
+      deleteMutation.mutate(member._id);
+    };
+
+    if (Platform.OS === 'web') {
+      const confirmed = window.confirm(
+        `Are you sure you want to delete ${member.name} (${member.role})?\n\nTheir active leads will be automatically preserved and reassigned to active team members in ${member.branch || 'their branch'}.`,
+      );
+      if (confirmed) {
+        confirmAction();
+      }
+    } else {
+      Alert.alert(
+        'Delete Member',
+        `Are you sure you want to delete ${member.name}? Their active leads will be automatically preserved and reassigned.`,
+        [
+          { text: 'Cancel', style: 'cancel' },
+          { text: 'Delete', style: 'destructive', onPress: confirmAction },
+        ],
+      );
+    }
+  };
 
   const createBranchMutation = useMutation({
     mutationFn: () =>
@@ -531,23 +575,45 @@ export const TeamScreen: React.FC = () => {
                     </View>
                   </View>
 
-                  {/* Edit Button */}
-                  <TouchableOpacity
-                    onPress={() => setEditingMember(item)}
-                    activeOpacity={0.7}
-                    style={{
-                      width: 30,
-                      height: 30,
-                      borderRadius: 15,
-                      backgroundColor: '#F8FAFC',
-                      borderWidth: 1,
-                      borderColor: '#E2E8F0',
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                    }}
-                  >
-                    <Edit2 size={13} color="#475569" />
-                  </TouchableOpacity>
+                  {/* Action Buttons: Edit & Delete */}
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                    <TouchableOpacity
+                      onPress={() => setEditingMember(item)}
+                      activeOpacity={0.7}
+                      style={{
+                        width: 30,
+                        height: 30,
+                        borderRadius: 15,
+                        backgroundColor: '#F8FAFC',
+                        borderWidth: 1,
+                        borderColor: '#E2E8F0',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                      }}
+                    >
+                      <Edit2 size={13} color="#475569" />
+                    </TouchableOpacity>
+
+                    {(isAdmin || (isManager && item.role === 'AGENT')) && item._id !== currentUser?._id && (
+                      <TouchableOpacity
+                        onPress={() => handleDeleteMember(item)}
+                        activeOpacity={0.7}
+                        disabled={deleteMutation.isPending}
+                        style={{
+                          width: 30,
+                          height: 30,
+                          borderRadius: 15,
+                          backgroundColor: '#FEF2F2',
+                          borderWidth: 1,
+                          borderColor: '#FECACA',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                        }}
+                      >
+                        <Trash2 size={13} color="#DC2626" />
+                      </TouchableOpacity>
+                    )}
+                  </View>
                 </View>
 
                 {/* Contact Meta Details */}

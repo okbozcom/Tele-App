@@ -39,6 +39,7 @@ export const createCampaignSchema = z.object({
         .trim(),
       pipelineId: z.string().regex(objectIdRegex, 'Invalid pipeline ID format'),
       managerId: z.string().regex(objectIdRegex, 'Invalid manager ID format').optional(),
+      branch: z.string().trim().optional().nullable(),
       agentIds: z
         .array(z.string().regex(objectIdRegex, 'Invalid agent ID format'))
         .default([]),
@@ -83,6 +84,7 @@ export const updateCampaignSchema = z.object({
       name: z.string().min(1, 'Campaign name cannot be empty').trim().optional(),
       pipelineId: z.string().regex(objectIdRegex, 'Invalid pipeline ID format').optional(),
       managerId: z.string().regex(objectIdRegex, 'Invalid manager ID format').optional(),
+      branch: z.string().trim().optional().nullable(),
       agentIds: z.array(z.string().regex(objectIdRegex, 'Invalid agent ID format')).optional(),
       distributionMode: z.enum(['EQUAL', 'CONDITIONAL']).optional(),
       conditionalRules: z.array(conditionalRuleInputSchema).optional(),
