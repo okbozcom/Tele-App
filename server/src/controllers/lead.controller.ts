@@ -5,6 +5,7 @@ import { LeadIngestService, RawLeadRow } from '../services/lead-ingest.service';
 import { LeadService } from '../services/lead.service';
 import { WebhookIngestService } from '../services/webhook-ingest.service';
 import { Campaign } from '../models/campaign.model';
+import { User } from '../models/user.model';
 import { ListCampaignLeadsQuery, MyLeadsQuery } from '../validations/lead.validation';
 import { AppError } from '../utils/AppError';
 
@@ -23,6 +24,20 @@ export class LeadController {
         throw new AppError('CSV file is required in multipart form-data (key: "file")', 400);
       }
 
+      const campaignId = req.params.id;
+      const campaign = await Campaign.findById(campaignId);
+      if (!campaign) {
+        throw new AppError('Campaign not found', 404);
+      }
+
+      // Enforce branch permission for Managers
+      if (req.user.role === 'MANAGER') {
+        const mgrBranch = (req.user.branch || '').toLowerCase().trim();
+        if (campaign.branch && campaign.branch.toLowerCase().trim() !== mgrBranch) {
+          throw new AppError('Unauthorized: Managers can only upload leads into campaigns within their own branch', 403);
+        }
+      }
+
       let parsedRecords: Array<Record<string, unknown>>;
       try {
         parsedRecords = parse(req.file.buffer, {
@@ -36,6 +51,18 @@ export class LeadController {
 
       if (parsedRecords.length === 0) {
         throw new AppError('The uploaded CSV file is empty', 400);
+      }
+
+      // Validate required columns (must have 'name' and ('phone' or 'mobile' or 'contact'))
+      const firstRow = parsedRecords[0];
+      const keys = Object.keys(firstRow).map((k) => k.trim().toLowerCase());
+      const hasName = keys.includes('name');
+      const hasPhone = keys.some((k) => k === 'phone' || k === 'mobile' || k === 'contact');
+      if (!hasName || !hasPhone) {
+        throw new AppError(
+          'CSV validation failed: Required headers "name" and "phone" (or "mobile"/"contact") are missing.',
+          400,
+        );
       }
 
       // Map rows extracting name, phone, email, agent and putting extra columns into custom properties
@@ -65,6 +92,15 @@ export class LeadController {
       });
 
       const targetAgentId = req.body?.targetAgentId || undefined;
+      // If manager specified targetAgentId, ensure target agent belongs to manager's branch
+      if (req.user.role === 'MANAGER' && targetAgentId) {
+        const targetAgent = await User.findById(targetAgentId);
+        const mgrBranch = (req.user.branch || '').toLowerCase().trim();
+        if (targetAgent && targetAgent.branch && targetAgent.branch.toLowerCase().trim() !== mgrBranch) {
+          throw new AppError('Unauthorized: Cannot assign leads to an agent outside your branch', 403);
+        }
+      }
+
       const result = await LeadIngestService.ingest(req.params.id, rows, 'UPLOAD', targetAgentId);
       res.status(200).json(result);
     } catch (error) {
