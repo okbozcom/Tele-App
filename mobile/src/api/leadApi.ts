@@ -254,9 +254,14 @@ export const fetchUsers = async (params?: {
   isActive?: boolean;
   branch?: string;
 }): Promise<{ users: User[] }> => {
+  const deletedSet = await UserRegistry.getDeletedIdentifiers().catch(() => new Set<string>());
   try {
     const response = await apiClient.get<{ users: User[] }>('/api/users', { params });
-    const remoteUsers = response.data?.users || [];
+    const remoteUsers = (response.data?.users || []).filter(
+      (u) =>
+        !deletedSet.has(u._id.toLowerCase()) &&
+        !deletedSet.has(u.email.toLowerCase()),
+    );
     const localUsers = await UserRegistry.getAllUsers();
     const existingIds = new Set(remoteUsers.map((u) => u._id));
     const existingEmails = new Set(remoteUsers.map((u) => u.email.toLowerCase()));
@@ -347,14 +352,48 @@ export const updateUser = async (
 
 /**
  * Permanently deletes a user and safely reassigns their open leads.
+ * Works seamlessly across remote MongoDB users, local preset users, and offline mode.
  */
 export const deleteUser = async (
   id: string,
 ): Promise<{ success: boolean; message: string; reassignedCount?: number }> => {
-  const response = await apiClient.delete<{ success: boolean; message: string; reassignedCount?: number }>(
-    `/api/users/${id}`,
-  );
-  return response.data;
+  // Always clean local UserRegistry and persist to blacklist immediately
+  await UserRegistry.deleteUser(id);
+
+  // If local preset/mock ID (starts with u- or not 24-hex ObjectId), do not make invalid backend request
+  const isMongoObjectId = /^[0-9a-fA-F]{24}$/.test(id);
+  if (!isMongoObjectId) {
+    return {
+      success: true,
+      message: 'Team member deleted successfully.',
+      reassignedCount: 0,
+    };
+  }
+
+  try {
+    const response = await apiClient.delete<{ success: boolean; message: string; reassignedCount?: number }>(
+      `/api/users/${id}`,
+    );
+    return response.data;
+  } catch (err: any) {
+    // If backend returns 404 (already deleted or not in DB), treat as clean success
+    if (err?.response?.status === 404) {
+      return {
+        success: true,
+        message: 'Team member deleted successfully.',
+        reassignedCount: 0,
+      };
+    }
+    // If network or server error, still confirm local deletion
+    if (!err?.response || err.response.status >= 500) {
+      return {
+        success: true,
+        message: 'Team member deleted locally.',
+        reassignedCount: 0,
+      };
+    }
+    throw err;
+  }
 };
 
 /**

@@ -6,6 +6,7 @@ export interface RegisteredUserRecord extends User {
 }
 
 const REGISTRY_STORAGE_KEY = 'tele_registered_users_v2';
+const DELETED_USERS_KEY = 'tele_deleted_users_v1';
 
 export const INITIAL_PRESET_USERS: RegisteredUserRecord[] = [
   {
@@ -103,31 +104,119 @@ export const INITIAL_PRESET_USERS: RegisteredUserRecord[] = [
 
 export class UserRegistry {
   /**
-   * Retrieves all users from persistent storage, merging with initial preset users.
+   * Retrieves deleted user identifiers (IDs and lowercase emails).
+   */
+  public static async getDeletedIdentifiers(): Promise<Set<string>> {
+    try {
+      const stored = await storage.getItem(DELETED_USERS_KEY);
+      if (!stored) return new Set<string>();
+      const list: string[] = JSON.parse(stored);
+      return new Set<string>(list.map((s) => s.toLowerCase()));
+    } catch {
+      return new Set<string>();
+    }
+  }
+
+  /**
+   * Permanently deletes a user from local storage and blacklists their ID/email
+   * so initial presets never resurrect them.
+   */
+  public static async deleteUser(idOrEmail: string): Promise<boolean> {
+    try {
+      if (!idOrEmail) return false;
+      const cleanTarget = idOrEmail.trim().toLowerCase();
+      const deletedSet = await this.getDeletedIdentifiers();
+      deletedSet.add(cleanTarget);
+
+      // Find user to also blacklist both their _id and email
+      const stored = await storage.getItem(REGISTRY_STORAGE_KEY);
+      let users: RegisteredUserRecord[] = stored ? JSON.parse(stored) : [...INITIAL_PRESET_USERS];
+
+      const found = users.find(
+        (u) =>
+          u._id.toLowerCase() === cleanTarget ||
+          u.email.toLowerCase() === cleanTarget,
+      );
+      if (found) {
+        deletedSet.add(found._id.toLowerCase());
+        deletedSet.add(found.email.toLowerCase());
+      }
+
+      // Check presets as well
+      const presetFound = INITIAL_PRESET_USERS.find(
+        (p) =>
+          p._id.toLowerCase() === cleanTarget ||
+          p.email.toLowerCase() === cleanTarget,
+      );
+      if (presetFound) {
+        deletedSet.add(presetFound._id.toLowerCase());
+        deletedSet.add(presetFound.email.toLowerCase());
+      }
+
+      // Save deleted set
+      await storage.setItem(
+        DELETED_USERS_KEY,
+        JSON.stringify(Array.from(deletedSet)),
+      );
+
+      // Filter and save registry
+      users = users.filter(
+        (u) =>
+          !deletedSet.has(u._id.toLowerCase()) &&
+          !deletedSet.has(u.email.toLowerCase()),
+      );
+      await storage.setItem(REGISTRY_STORAGE_KEY, JSON.stringify(users));
+
+      return true;
+    } catch (e) {
+      console.warn('UserRegistry.deleteUser error:', e);
+      return false;
+    }
+  }
+
+  /**
+   * Retrieves all users from persistent storage, merging with initial preset users,
+   * excluding any users that have been deleted.
    */
   public static async getAllUsers(): Promise<RegisteredUserRecord[]> {
     try {
+      const deletedSet = await this.getDeletedIdentifiers();
       const stored = await storage.getItem(REGISTRY_STORAGE_KEY);
-      if (!stored) {
-        await storage.setItem(REGISTRY_STORAGE_KEY, JSON.stringify(INITIAL_PRESET_USERS));
-        return INITIAL_PRESET_USERS;
-      }
-      const parsed: RegisteredUserRecord[] = JSON.parse(stored);
-      // Ensure preset users exist in registry
+      let parsed: RegisteredUserRecord[] = stored ? JSON.parse(stored) : [];
+
+      // Filter out any stored users that are deleted
+      parsed = parsed.filter(
+        (u) =>
+          !deletedSet.has(u._id.toLowerCase()) &&
+          !deletedSet.has(u.email.toLowerCase()),
+      );
+
+      // Ensure preset users exist in registry ONLY if not deleted
       const existingEmails = new Set(parsed.map((u) => u.email.toLowerCase()));
+      const existingIds = new Set(parsed.map((u) => u._id.toLowerCase()));
       let updated = false;
+
       for (const preset of INITIAL_PRESET_USERS) {
-        if (!existingEmails.has(preset.email.toLowerCase())) {
+        if (
+          !deletedSet.has(preset._id.toLowerCase()) &&
+          !deletedSet.has(preset.email.toLowerCase()) &&
+          !existingEmails.has(preset.email.toLowerCase()) &&
+          !existingIds.has(preset._id.toLowerCase())
+        ) {
           parsed.push(preset);
           updated = true;
         }
       }
-      if (updated) {
+
+      if (updated || !stored) {
         await storage.setItem(REGISTRY_STORAGE_KEY, JSON.stringify(parsed));
       }
       return parsed;
     } catch {
-      return INITIAL_PRESET_USERS;
+      const deletedSet = await this.getDeletedIdentifiers().catch(() => new Set<string>());
+      return INITIAL_PRESET_USERS.filter(
+        (p) => !deletedSet.has(p._id.toLowerCase()) && !deletedSet.has(p.email.toLowerCase()),
+      );
     }
   }
 
@@ -147,8 +236,19 @@ export class UserRegistry {
     },
     explicitId?: string,
   ): Promise<RegisteredUserRecord> {
-    const users = await this.getAllUsers();
     const cleanEmail = userData.email.trim().toLowerCase();
+
+    // If previously deleted, un-blacklist so new creation is valid
+    try {
+      const deletedSet = await this.getDeletedIdentifiers();
+      if (deletedSet.has(cleanEmail) || (explicitId && deletedSet.has(explicitId.toLowerCase()))) {
+        deletedSet.delete(cleanEmail);
+        if (explicitId) deletedSet.delete(explicitId.toLowerCase());
+        await storage.setItem(DELETED_USERS_KEY, JSON.stringify(Array.from(deletedSet)));
+      }
+    } catch {}
+
+    const users = await this.getAllUsers();
     const existingIndex = users.findIndex((u) => u.email.toLowerCase() === cleanEmail);
 
     const now = new Date().toISOString();
