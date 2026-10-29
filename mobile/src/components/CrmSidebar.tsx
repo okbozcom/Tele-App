@@ -38,6 +38,7 @@ import {
 } from 'lucide-react-native';
 
 import { useSafeTopPadding } from '../utils/safeArea';
+import { setAppLanguage } from '../i18n';
 import { useSidebarStore } from '../store/sidebarStore';
 import { useAuthStore } from '../store/authStore';
 import { useNotificationStore } from '../store/notificationStore';
@@ -167,7 +168,7 @@ export const CrmSidebarContent: React.FC<{
             text: 'English',
             style: 'default',
             onPress: () => {
-              storage.setItem('tele_crm_language', 'en');
+              setAppLanguage('en');
               toast.success('Language set to English');
             },
           },
@@ -175,7 +176,7 @@ export const CrmSidebarContent: React.FC<{
             text: 'தமிழ் (Tamil)',
             style: 'default',
             onPress: () => {
-              storage.setItem('tele_crm_language', 'ta');
+              setAppLanguage('ta');
               toast.success('Language set to தமிழ் (Tamil)');
             },
           },
@@ -183,7 +184,7 @@ export const CrmSidebarContent: React.FC<{
             text: 'हिन्दी (Hindi)',
             style: 'default',
             onPress: () => {
-              storage.setItem('tele_crm_language', 'hi');
+              setAppLanguage('hi');
               toast.success('Language set to हिन्दी (Hindi)');
             },
           },

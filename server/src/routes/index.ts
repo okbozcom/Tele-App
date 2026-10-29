@@ -15,6 +15,7 @@ import statRoutes from './stat.routes';
 import syncRoutes from './sync.routes';
 import taskRoutes from './task.routes';
 import { workSessionRoutes } from './work-session.routes';
+import { notificationRoutes } from './notification.routes';
 
 const router = Router();
 
@@ -27,6 +28,7 @@ router.use('/campaigns', campaignRoutes);
 router.use('/leads', leadsRouter);
 router.use('/tasks', taskRoutes);
 router.use('/sessions', workSessionRoutes);
+router.use('/notifications', notificationRoutes);
 router.use('/settings', settingRoutes);
 router.use('/retry-rules', retryRuleRoutes);
 router.use('/reports', reportRoutes);
