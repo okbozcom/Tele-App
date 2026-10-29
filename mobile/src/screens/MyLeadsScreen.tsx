@@ -339,7 +339,7 @@ const MyLeadsScreenContent: React.FC = () => {
 
   // Real backend leads (backend /api/leads/my is already strictly scoped to logged-in user)
   const combinedLeads: ScreenshotLead[] = useMemo(() => {
-    const rawLeads = effectiveLeadsData?.leads || [];
+    const rawLeads = (effectiveLeadsData?.leads || []).filter((l: Lead) => l && l._id);
     if (!Array.isArray(rawLeads) || rawLeads.length === 0) return [];
 
     const realLeads = [...rawLeads].sort((a: Lead, b: Lead) => {
@@ -429,7 +429,7 @@ const MyLeadsScreenContent: React.FC = () => {
           : 'Medium';
 
       return {
-        _id: l?._id || (l?.phone ? `lead-phone-${l.phone.replace(/\D/g, '')}` : `lead-fallback-${cId || 'gen'}`),
+        _id: String(l._id),
         name: (l?.name || 'Lead Contact').toString(),
         phone: formatDisplayPhone(l?.phone || ''),
         campaignName: camp,
