@@ -28,6 +28,7 @@ import { CampaignsScreen } from '../screens/CampaignsScreen';
 import { CampaignSelectScreen } from '../screens/CampaignSelectScreen';
 import { UploadLeadsScreen } from '../screens/UploadLeadsScreen';
 import { SettingsScreen } from '../screens/SettingsScreen';
+import { TasksScreen } from '../screens/TasksScreen';
 import { DiagnosticsScreen } from '../screens/DiagnosticsScreen';
 import { RetryRulesScreen } from '../screens/RetryRulesScreen';
 import { LeadDetailScreen } from '../screens/LeadDetailScreen';
@@ -279,6 +280,7 @@ export const RootNavigator: React.FC = () => {
               <Stack.Screen name="CampaignDetail" component={CampaignDetailScreen} />
               <Stack.Screen name="UploadLeads" component={UploadLeadsScreen} />
               <Stack.Screen name="Settings" component={SettingsScreen} />
+              <Stack.Screen name="Tasks" component={TasksScreen} />
               <Stack.Screen name="Diagnostics" component={DiagnosticsScreen} />
               <Stack.Screen name="RetryRules" component={RetryRulesScreen} />
               <Stack.Screen name="Profile" component={ProfileScreen} />

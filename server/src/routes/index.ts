@@ -13,6 +13,7 @@ import auditRoutes from './audit.routes';
 import agentBreakRoutes from './agent-break.routes';
 import statRoutes from './stat.routes';
 import syncRoutes from './sync.routes';
+import taskRoutes from './task.routes';
 
 const router = Router();
 
@@ -23,6 +24,7 @@ router.use('/pipelines', pipelineRoutes);
 router.use('/campaigns/:id/leads', campaignLeadsRouter);
 router.use('/campaigns', campaignRoutes);
 router.use('/leads', leadsRouter);
+router.use('/tasks', taskRoutes);
 router.use('/settings', settingRoutes);
 router.use('/retry-rules', retryRuleRoutes);
 router.use('/reports', reportRoutes);

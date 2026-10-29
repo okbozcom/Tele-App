@@ -244,6 +244,26 @@ export interface DetectedCallResult {
   simId?: string;
 }
 
+export interface Task {
+  _id: string;
+  title: string;
+  description?: string;
+  leadId: string;
+  leadName?: string;
+  leadPhone?: string;
+  assignedTo: string;
+  assignedToName?: string;
+  reportedBy: string;
+  reportedByName?: string;
+  dueDate: string;
+  priority: 'LOW' | 'MEDIUM' | 'HIGH';
+  status: 'PENDING' | 'COMPLETED';
+  completedAt?: string;
+  branch?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
 export type RootStackParamList = {
   Login: undefined;
   CampaignSelect: undefined;
@@ -262,6 +282,7 @@ export type RootStackParamList = {
   CampaignDetail: { campaignId?: string; campaignName?: string; campaign?: Campaign } | undefined;
   UploadLeads: undefined;
   Settings: undefined;
+  Tasks: undefined;
   Diagnostics: undefined;
   RetryRules: undefined;
   AddWalkInLead: { campaignId?: string; phone?: string; name?: string } | undefined;

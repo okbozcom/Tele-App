@@ -43,6 +43,8 @@ import { useAuthStore } from '../store/authStore';
 import { useNotificationStore } from '../store/notificationStore';
 import { useDialerStore } from '../store/dialerStore';
 import { CrmAvatar } from './CrmAvatar';
+import { storage } from '../utils/storage';
+import { toast } from '../store/toastStore';
 import { colors, borderRadius, shadows } from '../theme';
 
 interface NavItemConfig {
@@ -110,7 +112,7 @@ export const CrmSidebarContent: React.FC<{
     { name: 'Dashboard', route: 'Home', label: 'Dashboard', icon: LayoutGrid },
     { name: 'MyLeads', route: 'MyLeads', label: 'My Leads', icon: Users },
     { name: 'CallHistory', route: 'CallHistory', label: 'Call History', icon: History },
-    { name: 'MyTasks', route: 'FollowUps', label: 'My Tasks', icon: CalendarCheck2, badge: unreadCount > 0 ? unreadCount : undefined },
+    { name: 'MyTasks', route: 'Tasks', label: 'My Tasks', icon: CalendarCheck2 },
     {
       name: 'CampaignAnalytics',
       route: 'CampaignDetail',
@@ -160,9 +162,31 @@ export const CrmSidebarContent: React.FC<{
       label: 'Change Language',
       icon: Globe,
       action: () =>
-        Alert.alert('Language Settings', 'App is configured for English & Tamil (தமிழ்).', [
-          { text: 'English', style: 'default' },
-          { text: 'தமிழ் (Tamil)', style: 'default' },
+        Alert.alert('Language Settings', 'Select your preferred application language:', [
+          {
+            text: 'English',
+            style: 'default',
+            onPress: () => {
+              storage.setItem('tele_crm_language', 'en');
+              toast.success('Language set to English');
+            },
+          },
+          {
+            text: 'தமிழ் (Tamil)',
+            style: 'default',
+            onPress: () => {
+              storage.setItem('tele_crm_language', 'ta');
+              toast.success('Language set to தமிழ் (Tamil)');
+            },
+          },
+          {
+            text: 'हिन्दी (Hindi)',
+            style: 'default',
+            onPress: () => {
+              storage.setItem('tele_crm_language', 'hi');
+              toast.success('Language set to हिन्दी (Hindi)');
+            },
+          },
           { text: 'Cancel', style: 'cancel' },
         ]),
     },

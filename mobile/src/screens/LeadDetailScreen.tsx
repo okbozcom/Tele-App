@@ -50,8 +50,10 @@ import {
   Ban,
   PhoneOutgoing,
   BookmarkCheck,
+  CalendarCheck2,
 } from 'lucide-react-native';
 
+import { CreateTaskModal } from '../components/CreateTaskModal';
 import { callService } from '../services/call.service';
 import { callSession } from '../services/callSession';
 import {
@@ -302,6 +304,7 @@ export const LeadDetailScreen: React.FC = () => {
   const [showHistoryModal, setShowHistoryModal] = useState<boolean>(false);
   const [showEditContactModal, setShowEditContactModal] = useState<boolean>(false);
   const [showTagManagerModal, setShowTagManagerModal] = useState<boolean>(false);
+  const [showCreateTaskModal, setShowCreateTaskModal] = useState<boolean>(false);
   const [editName, setEditName] = useState<string>(lead.name);
   const [editPhone, setEditPhone] = useState<string>(lead.phone);
 
@@ -936,6 +939,16 @@ export const LeadDetailScreen: React.FC = () => {
               >
                 <BookmarkCheck size={14} color="#D97706" strokeWidth={2.5} />
                 <Text style={styles.leadInfoTagBtnText}>Tag Lead to Branch Manager / Admin</Text>
+              </TouchableOpacity>
+
+              {/* Add Task Button */}
+              <TouchableOpacity
+                style={[styles.leadInfoTagBtn, { backgroundColor: '#ECFDF5', borderColor: '#A7F3D0', marginTop: 8 }]}
+                onPress={() => setShowCreateTaskModal(true)}
+                activeOpacity={0.8}
+              >
+                <CalendarCheck2 size={14} color="#059669" strokeWidth={2.5} />
+                <Text style={[styles.leadInfoTagBtnText, { color: '#047857' }]}>Add Task / Reminder for Lead</Text>
               </TouchableOpacity>
             </View>
 
@@ -1685,6 +1698,15 @@ export const LeadDetailScreen: React.FC = () => {
         onSuccess={() => {
           queryClient.invalidateQueries({ queryKey: ['leadHistory', currentLead._id] });
         }}
+      />
+
+      {/* Create Task Modal */}
+      <CreateTaskModal
+        visible={showCreateTaskModal}
+        onClose={() => setShowCreateTaskModal(false)}
+        leadId={currentLead._id}
+        leadName={currentLead.name}
+        leadPhone={currentLead.phone}
       />
 
       {/* NeoDove-Grade 1-Tap Quick Not Connected Sheet */}
