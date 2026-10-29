@@ -196,41 +196,41 @@ This document serves as the master blueprint, audit, and living progress tracker
   - [x] Request layer: deduplication, stale-while-revalidate, AbortController cancellation
   - [x] Batch sync endpoint: `POST /api/sync/batch`
   - [x] Mongo compound indexes & scheduler distributed leader lock
-- [ ] **Phase 2 — Call Module**
-  - [ ] Dual-SIM selection helper & persistence
-  - [ ] Auto-dial delay setting & countdown modal
-  - [ ] Persistent pending-disposition restoration on app re-open
-  - [ ] Accurate duration recording (`durationSource: DEVICE_CALL_LOG` vs `APP_ESTIMATE`)
-  - [ ] Disposition v2: Connected engagement form + message templates + mandatory follow-up clamp
-  - [ ] Disposition v2: Not Connected 10 standard reasons + retry rules
-- [ ] **Phase 3 — Call Leading (Spec 4.2)**
-  - [ ] Server-side atomic cursor endpoint: `POST /api/leads/next` (`findOneAndUpdate` with lease lock)
-  - [ ] Admin Lead Priority list configuration
-  - [ ] 4 entry points: Priority-wise, Campaign-wise, My Leads-wise, Filter-wise
-  - [ ] Lead prefetching during active call
-- [ ] **Phase 4 — Lead Assignment & Distribution (Spec 4.6)**
-  - [ ] AI Assignment (pull/bucket mode)
-  - [ ] Equal & Conditional distribution optimizations (no N+1 queries)
-  - [ ] Duplicate handling: Skip, Merge, Merge & Reopen Closed
-  - [ ] Custom contact properties
-  - [ ] Bulk actions: Update, Delete (typed confirmation), Move with history, Close
-- [ ] **Phase 5 — Stats / Reporting Accuracy & Recording (Spec 4.7 & Section 6)**
-  - [ ] Reconcile HomeScreen, Dashboard, AgentReport, and ReportGeneratorModal to `DailyStat`
-  - [ ] Nightly & on-demand DailyStat reconciliation job
-  - [ ] GSM call recording attachment flow (Android)
-  - [ ] Admin reports & trend visualizations
-- [ ] **Phase 6 — Settings Additions (Spec 4.9) & Roles/Permissions (Spec 4.8)**
-  - [ ] Add missing NeoDove org settings in new labeled section on SettingsScreen
-  - [ ] Phone number masking permission for Executive role
-  - [ ] Call recording playback permissions
-- [ ] **Phase 7 — Tasks, Notifications, Language (Spec 4.10)**
-  - [ ] Tasks module: Add task from lead, "Assigned to me" / "Reported by me"
-  - [ ] 24-hour notifications with unread highlight
-  - [ ] Language switcher (English, Tamil, Hindi)
-- [ ] **Phase 8 — Extras Cleanup, Bug Sweep, Load Test**
-  - [ ] Commit extras removals to `parity(cleanup): ...`
-  - [ ] Comprehensive bug sweep verification
-  - [ ] Load test script in `server/loadtest/` targeting 300 agents / 50 managers / 50k rows
-  - [ ] Produce `LOAD_TEST.md`
-  - [ ] Produce `PARITY_REPORT.md`
-  - [ ] Wait for user's explicit "push" instruction
+- [x] **Phase 2 — Call Module**
+  - [x] Dual-SIM selection helper & persistence
+  - [x] Auto-dial delay setting & countdown modal
+  - [x] Persistent pending-disposition restoration on app re-open
+  - [x] Accurate duration recording (`durationSource: DEVICE_CALL_LOG` vs `APP_ESTIMATE`)
+  - [x] Disposition v2: Connected engagement form + message templates + mandatory follow-up clamp
+  - [x] Disposition v2: Not Connected 10 standard reasons + retry rules
+- [x] **Phase 3 — Call Leading (Spec 4.2)**
+  - [x] Server-side atomic cursor endpoint: `POST /api/leads/next` (`findOneAndUpdate` with lease lock)
+  - [x] Admin Lead Priority list configuration
+  - [x] 4 entry points: Priority-wise, Campaign-wise, My Leads-wise, Filter-wise
+  - [x] Lead prefetching during active call
+- [x] **Phase 4 — Lead Assignment & Distribution (Spec 4.6)**
+  - [x] AI Assignment (pull/bucket mode)
+  - [x] Equal & Conditional distribution optimizations (no N+1 queries)
+  - [x] Duplicate handling: Skip, Merge, Merge & Reopen Closed
+  - [x] Custom contact properties
+  - [x] Bulk actions: Update, Delete (typed confirmation), Move with history, Close
+- [x] **Phase 5 — Stats / Reporting Accuracy & Recording (Spec 4.7 & Section 6)**
+  - [x] Reconcile HomeScreen, Dashboard, AgentReport, and ReportGeneratorModal to `DailyStat`
+  - [x] Nightly & on-demand DailyStat reconciliation job
+  - [x] GSM call recording attachment flow (Android)
+  - [x] Admin reports & trend visualizations
+- [x] **Phase 6 — Settings Additions (Spec 4.9) & Roles/Permissions (Spec 4.8)**
+  - [x] Add missing NeoDove org settings in new labeled section on SettingsScreen
+  - [x] Phone number masking permission for Executive role
+  - [x] Call recording playback permissions
+- [x] **Phase 7 — Tasks, Notifications, Language (Spec 4.10)**
+  - [x] Tasks module: Add task from lead, "Assigned to me" / "Reported by me"
+  - [x] 24-hour notifications with unread highlight
+  - [x] Language switcher (English, Tamil, Hindi)
+- [x] **Phase 8 — Extras Cleanup, Bug Sweep, Load Test**
+  - [x] Commit extras removals to `parity(cleanup): ...`
+  - [x] Comprehensive bug sweep verification
+  - [x] Load test script in `server/loadtest/` targeting 300 agents / 50 managers / 50k rows
+  - [x] Produce `LOAD_TEST.md`
+  - [x] Produce `PARITY_REPORT.md`
+  - [x] Wait for user's explicit "push" instruction
