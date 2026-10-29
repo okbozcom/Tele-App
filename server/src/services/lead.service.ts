@@ -216,7 +216,7 @@ export class LeadService {
       matchStage.status = 'OPEN';
       matchStage.nextFollowUpAt = { $ne: null };
     } else if (query.type === 'NOT_CONNECTED') {
-      matchStage.status = 'OPEN';
+      delete matchStage.status;
       matchStage.stage = {
         $regex: /not connected|did not pick|busy|disconnected|switch|coverage|ringing|unreachable|call cut|not completed|invalid|not in use/i,
       };
@@ -225,6 +225,7 @@ export class LeadService {
       matchStage.stage = { $regex: /interested/i };
     } else if (query.type === 'NOT_INTERESTED') {
       delete matchStage.stage;
+      delete matchStage.status;
       matchStage.$or = [
         { status: 'CLOSED' },
         { stage: { $regex: /not interested|closed|lost|rejected/i } },
@@ -244,6 +245,13 @@ export class LeadService {
         orConditions.push({ phone: new RegExp(qDigits, 'i') });
       }
       matchStage.$or = orConditions;
+
+      // When searching, clear tab-specific constraints so agents can find ANY matching lead
+      delete matchStage.attemptCount;
+      delete matchStage.lastContactedAt;
+      delete matchStage.nextFollowUpAt;
+      delete matchStage.stage;
+      delete matchStage.status;
     }
 
     const page = query.page || 1;
@@ -521,7 +529,6 @@ export class LeadService {
           notConnected: [
             {
               $match: {
-                status: 'OPEN',
                 stage: {
                   $regex: /not connected|did not pick|busy|disconnected|switch|coverage|ringing|unreachable|call cut|not completed|invalid|not in use/i,
                 },

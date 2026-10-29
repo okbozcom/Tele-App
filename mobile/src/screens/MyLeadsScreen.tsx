@@ -337,14 +337,14 @@ const MyLeadsScreenContent: React.FC = () => {
     queryKey: ['myLeadsList', user?._id, backendType, selectedCampaignId, debouncedSearch],
     queryFn: () =>
       fetchMyLeads({
-        type: backendType,
+        type: debouncedSearch ? 'ALL' : backendType,
         campaignId: selectedCampaignId || undefined,
         search: debouncedSearch || undefined,
-        limit: 200,
+        limit: 5000,
       }),
     refetchInterval: 60000,
     refetchIntervalInBackground: false,
-    staleTime: 1000 * 30, // 30 seconds TTL so lead updates reflect promptly
+    staleTime: 1000 * 15,
   });
 
   const { data: serverCounts, refetch: refetchCounts } = useQuery({
@@ -424,6 +424,8 @@ const MyLeadsScreenContent: React.FC = () => {
         stg = 'New';
       } else if (normalizedStage === 'interested') {
         stg = 'Interested';
+      } else if (isNotConnectedStage) {
+        stg = 'Not connected';
       } else if (
         normalizedStage === 'not interested' ||
         normalizedStage === 'closed' ||
@@ -432,8 +434,6 @@ const MyLeadsScreenContent: React.FC = () => {
         l?.status === 'CLOSED'
       ) {
         stg = 'Not Interested';
-      } else if (isNotConnectedStage) {
-        stg = 'Not connected';
       } else if (
         hasFollowUpSchedule ||
         normalizedStage === 'follow up' ||
@@ -572,7 +572,9 @@ const MyLeadsScreenContent: React.FC = () => {
         }
       }
 
-      const isLost = isLeadLostOrSuppressed(lead as any) || lead.status === 'Not Interested';
+      const isLost =
+        (isLeadLostOrSuppressed(lead as any) && lead.status !== 'Not connected') ||
+        lead.status === 'Not Interested';
 
       // Search query (debounced)
       if (q) {
@@ -592,16 +594,7 @@ const MyLeadsScreenContent: React.FC = () => {
           return false;
         }
 
-        // Direct phone number searches show the lead across active tabs
-        if (selectedFilter !== 'All' && selectedFilter !== 'Not Interested') {
-          if (lead.status !== selectedFilter && (!phoneMatches || qDigits.length < 7)) {
-            return false;
-          }
-        } else if (selectedFilter === 'Not Interested') {
-          if (!isLost) {
-            return false;
-          }
-        }
+        // Universal search: when user searches, show the matching lead across all tabs!
         return true;
       }
 
