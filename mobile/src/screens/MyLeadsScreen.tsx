@@ -321,8 +321,8 @@ const MyLeadsScreenContent: React.FC = () => {
     refetch,
   } = useQuery({
     queryKey: ['myLeadsList', user?._id],
-    queryFn: () => fetchMyLeads({ limit: 5000 }),
-    refetchInterval: 45000,
+    queryFn: () => fetchMyLeads({ limit: 500 }),
+    refetchInterval: 60000,
     refetchIntervalInBackground: false,
     staleTime: 1000 * 60 * 3, // 3 minutes cache TTL
   });
