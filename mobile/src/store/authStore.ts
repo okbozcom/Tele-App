@@ -36,7 +36,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       const response = await axios.post<{ token: string; user: User }>(
         `${API_BASE_URL}/auth/login`,
         { email: cleanEmail, password },
-        { timeout: 30000 },
+        { timeout: 8000 },
       );
 
       const { token, user } = response.data;
