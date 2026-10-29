@@ -240,6 +240,86 @@ export class LeadController {
     }
   }
 
+  public static async bulkUpdate(
+    req: Request,
+    res: Response,
+    next: NextFunction,
+  ): Promise<void> {
+    try {
+      if (!req.user) {
+        throw new AppError('Authentication required', 401);
+      }
+      const result = await LeadService.bulkUpdate(req.user, req.body);
+      res.status(200).json({ status: 'success', ...result });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  public static async bulkMove(
+    req: Request,
+    res: Response,
+    next: NextFunction,
+  ): Promise<void> {
+    try {
+      if (!req.user) {
+        throw new AppError('Authentication required', 401);
+      }
+      const result = await LeadService.bulkMove(req.user, req.body);
+      res.status(200).json({ status: 'success', ...result });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  public static async bulkCopy(
+    req: Request,
+    res: Response,
+    next: NextFunction,
+  ): Promise<void> {
+    try {
+      if (!req.user) {
+        throw new AppError('Authentication required', 401);
+      }
+      const result = await LeadService.bulkCopy(req.user, req.body);
+      res.status(200).json({ status: 'success', ...result });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  public static async bulkClose(
+    req: Request,
+    res: Response,
+    next: NextFunction,
+  ): Promise<void> {
+    try {
+      if (!req.user) {
+        throw new AppError('Authentication required', 401);
+      }
+      const result = await LeadService.bulkClose(req.user, req.body);
+      res.status(200).json({ status: 'success', ...result });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  public static async bulkDelete(
+    req: Request,
+    res: Response,
+    next: NextFunction,
+  ): Promise<void> {
+    try {
+      if (!req.user) {
+        throw new AppError('Authentication required', 401);
+      }
+      const result = await LeadService.bulkDelete(req.user, req.body);
+      res.status(200).json({ status: 'success', ...result });
+    } catch (error) {
+      next(error);
+    }
+  }
+
   public static async exportCampaignLeadsCsv(
     req: Request,
     res: Response,

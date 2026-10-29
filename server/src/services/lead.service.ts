@@ -7,6 +7,11 @@ import { Activity } from '../models/activity.model';
 import {
   ListCampaignLeadsQuery,
   MyLeadsQuery,
+  BulkUpdateInput,
+  BulkMoveInput,
+  BulkCopyInput,
+  BulkCloseInput,
+  BulkDeleteInput,
 } from '../validations/lead.validation';
 import { AppError } from '../utils/AppError';
 import { AuditService } from './audit.service';
@@ -503,6 +508,269 @@ export class LeadService {
     return {
       modifiedCount: result.modifiedCount,
     };
+  }
+
+  public static async bulkUpdate(
+    requester: IUserDoc,
+    input: BulkUpdateInput,
+  ): Promise<{ modifiedCount: number }> {
+    const objectIds = input.leadIds.map((id) => new Types.ObjectId(id));
+    const filter: Record<string, unknown> = { _id: { $in: objectIds } };
+
+    if (requester.role === 'MANAGER') {
+      const managedCampaigns = await Campaign.find({
+        $or: [
+          { managerId: requester._id },
+          ...(requester.branch ? [{ branch: requester.branch }] : []),
+        ],
+      }, '_id');
+      const managedIds = managedCampaigns.map((c) => c._id);
+      filter.campaignId = { $in: managedIds };
+    } else if (requester.role === 'ADMIN' && requester.branch) {
+      filter.branch = requester.branch;
+    }
+
+    const updates: Record<string, unknown> = {};
+    if (input.stage) updates.stage = input.stage;
+    if (input.tag !== undefined) updates.tag = input.tag;
+    if (input.status) updates.status = input.status;
+
+    if (Object.keys(updates).length === 0) {
+      return { modifiedCount: 0 };
+    }
+
+    const result = await Lead.updateMany(filter, { $set: updates });
+
+    await AuditService.log({
+      userId: requester._id,
+      userEmail: requester.email,
+      userRole: requester.role,
+      action: 'LEAD_BULK_UPDATE',
+      resourceType: 'LEAD',
+      details: {
+        count: result.modifiedCount,
+        updates,
+      },
+    });
+
+    return { modifiedCount: result.modifiedCount };
+  }
+
+  public static async bulkMove(
+    requester: IUserDoc,
+    input: BulkMoveInput,
+  ): Promise<{ modifiedCount: number }> {
+    if (!Types.ObjectId.isValid(input.targetCampaignId)) {
+      throw new AppError('Invalid target campaign ID format', 400);
+    }
+
+    const targetCampaign = await Campaign.findById(input.targetCampaignId);
+    if (!targetCampaign) {
+      throw new AppError('Target campaign not found', 404);
+    }
+
+    if (requester.role === 'MANAGER') {
+      const isOwner = targetCampaign.managerId.toString() === requester._id.toString();
+      const isBranchMatch = Boolean(requester.branch && targetCampaign.branch && requester.branch === targetCampaign.branch);
+      if (!isOwner && !isBranchMatch) {
+        throw new AppError('Forbidden: You do not manage the target campaign', 403);
+      }
+    } else if (requester.role === 'ADMIN' && requester.branch && targetCampaign.branch) {
+      if (requester.branch !== targetCampaign.branch) {
+        throw new AppError('Forbidden: Target campaign belongs to another branch', 403);
+      }
+    }
+
+    const objectIds = input.leadIds.map((id) => new Types.ObjectId(id));
+    const filter: Record<string, unknown> = { _id: { $in: objectIds } };
+
+    if (requester.role === 'MANAGER') {
+      const managedCampaigns = await Campaign.find({
+        $or: [
+          { managerId: requester._id },
+          ...(requester.branch ? [{ branch: requester.branch }] : []),
+        ],
+      }, '_id');
+      const managedIds = managedCampaigns.map((c) => c._id);
+      filter.campaignId = { $in: managedIds };
+    }
+
+    const result = await Lead.updateMany(filter, {
+      $set: {
+        campaignId: targetCampaign._id,
+        branch: targetCampaign.branch || null,
+      },
+    });
+
+    await AuditService.log({
+      userId: requester._id,
+      userEmail: requester.email,
+      userRole: requester.role,
+      action: 'LEAD_BULK_MOVE',
+      resourceType: 'CAMPAIGN',
+      resourceId: targetCampaign._id.toString(),
+      details: {
+        count: result.modifiedCount,
+        targetCampaignName: targetCampaign.name,
+      },
+    });
+
+    return { modifiedCount: result.modifiedCount };
+  }
+
+  public static async bulkCopy(
+    requester: IUserDoc,
+    input: BulkCopyInput,
+  ): Promise<{ copiedCount: number }> {
+    if (!Types.ObjectId.isValid(input.targetCampaignId)) {
+      throw new AppError('Invalid target campaign ID format', 400);
+    }
+
+    const targetCampaign = await Campaign.findById(input.targetCampaignId);
+    if (!targetCampaign) {
+      throw new AppError('Target campaign not found', 404);
+    }
+
+    if (requester.role === 'MANAGER') {
+      const isOwner = targetCampaign.managerId.toString() === requester._id.toString();
+      const isBranchMatch = Boolean(requester.branch && targetCampaign.branch && requester.branch === targetCampaign.branch);
+      if (!isOwner && !isBranchMatch) {
+        throw new AppError('Forbidden: You do not manage the target campaign', 403);
+      }
+    } else if (requester.role === 'ADMIN' && requester.branch && targetCampaign.branch) {
+      if (requester.branch !== targetCampaign.branch) {
+        throw new AppError('Forbidden: Target campaign belongs to another branch', 403);
+      }
+    }
+
+    const objectIds = input.leadIds.map((id) => new Types.ObjectId(id));
+    const filter: Record<string, unknown> = { _id: { $in: objectIds } };
+
+    if (requester.role === 'MANAGER') {
+      const managedCampaigns = await Campaign.find({
+        $or: [
+          { managerId: requester._id },
+          ...(requester.branch ? [{ branch: requester.branch }] : []),
+        ],
+      }, '_id');
+      const managedIds = managedCampaigns.map((c) => c._id);
+      filter.campaignId = { $in: managedIds };
+    }
+
+    const sourceLeads = await Lead.find(filter);
+    if (sourceLeads.length === 0) {
+      return { copiedCount: 0 };
+    }
+
+    const newDocs = sourceLeads.map((sl) => ({
+      campaignId: targetCampaign._id,
+      name: sl.name,
+      phone: sl.phone,
+      email: sl.email || '',
+      source: 'BULK_COPY',
+      branch: targetCampaign.branch || sl.branch || null,
+      customProperties: sl.customProperties || new Map(),
+      stage: 'New',
+      tag: sl.tag || null,
+      status: 'OPEN' as const,
+      attemptCount: 0,
+      assignedTo: null,
+      followUpDue: false,
+    }));
+
+    const inserted = await Lead.insertMany(newDocs);
+
+    await AuditService.log({
+      userId: requester._id,
+      userEmail: requester.email,
+      userRole: requester.role,
+      action: 'LEAD_BULK_COPY',
+      resourceType: 'CAMPAIGN',
+      resourceId: targetCampaign._id.toString(),
+      details: {
+        count: inserted.length,
+        targetCampaignName: targetCampaign.name,
+      },
+    });
+
+    return { copiedCount: inserted.length };
+  }
+
+  public static async bulkClose(
+    requester: IUserDoc,
+    input: BulkCloseInput,
+  ): Promise<{ closedCount: number }> {
+    const objectIds = input.leadIds.map((id) => new Types.ObjectId(id));
+    const filter: Record<string, unknown> = { _id: { $in: objectIds }, status: { $ne: 'CLOSED' } };
+
+    if (requester.role === 'MANAGER') {
+      const managedCampaigns = await Campaign.find({
+        $or: [
+          { managerId: requester._id },
+          ...(requester.branch ? [{ branch: requester.branch }] : []),
+        ],
+      }, '_id');
+      const managedIds = managedCampaigns.map((c) => c._id);
+      filter.campaignId = { $in: managedIds };
+    } else if (requester.role === 'ADMIN' && requester.branch) {
+      filter.branch = requester.branch;
+    }
+
+    const result = await Lead.updateMany(filter, {
+      $set: {
+        status: 'CLOSED',
+        stage: input.reason || 'Closed',
+      },
+    });
+
+    await AuditService.log({
+      userId: requester._id,
+      userEmail: requester.email,
+      userRole: requester.role,
+      action: 'LEAD_BULK_CLOSE',
+      resourceType: 'LEAD',
+      details: {
+        count: result.modifiedCount,
+        reason: input.reason || 'Bulk Close',
+      },
+    });
+
+    return { closedCount: result.modifiedCount };
+  }
+
+  public static async bulkDelete(
+    requester: IUserDoc,
+    input: BulkDeleteInput,
+  ): Promise<{ deletedCount: number }> {
+    if (requester.role !== 'ADMIN') {
+      throw new AppError('Forbidden: Only administrators can bulk delete leads', 403);
+    }
+
+    if (input.confirmation !== 'DELETE') {
+      throw new AppError('Confirmation text must be exactly "DELETE"', 400);
+    }
+
+    const objectIds = input.leadIds.map((id) => new Types.ObjectId(id));
+    const filter: Record<string, unknown> = { _id: { $in: objectIds } };
+
+    if (requester.branch) {
+      filter.branch = requester.branch;
+    }
+
+    const result = await Lead.deleteMany(filter);
+
+    await AuditService.log({
+      userId: requester._id,
+      userEmail: requester.email,
+      userRole: requester.role,
+      action: 'LEAD_BULK_DELETE',
+      resourceType: 'LEAD',
+      details: {
+        count: result.deletedCount,
+      },
+    });
+
+    return { deletedCount: result.deletedCount };
   }
 
   public static async exportCampaignLeadsToCsv(

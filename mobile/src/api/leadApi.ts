@@ -92,6 +92,75 @@ export const fetchDialTarget = async (
 };
 
 /**
+ * Bulk reassign leads from one user to another.
+ */
+export const bulkReassignLeads = async (payload: {
+  fromUserId: string;
+  toUserId: string;
+  campaignId?: string;
+}): Promise<{ modifiedCount: number }> => {
+  const response = await apiClient.post<{ modifiedCount: number }>('/api/leads/bulk-reassign', payload);
+  return response.data;
+};
+
+/**
+ * Bulk update stage, tag, or status for multiple leads.
+ */
+export const bulkUpdateLeads = async (payload: {
+  leadIds: string[];
+  stage?: string;
+  tag?: string;
+  status?: 'OPEN' | 'CLOSED';
+}): Promise<{ status: string; modifiedCount: number }> => {
+  const response = await apiClient.post<{ status: string; modifiedCount: number }>('/api/leads/bulk-update', payload);
+  return response.data;
+};
+
+/**
+ * Bulk move leads to another campaign.
+ */
+export const bulkMoveLeads = async (payload: {
+  leadIds: string[];
+  targetCampaignId: string;
+}): Promise<{ status: string; modifiedCount: number }> => {
+  const response = await apiClient.post<{ status: string; modifiedCount: number }>('/api/leads/bulk-move', payload);
+  return response.data;
+};
+
+/**
+ * Bulk copy (duplicate) leads into another campaign.
+ */
+export const bulkCopyLeads = async (payload: {
+  leadIds: string[];
+  targetCampaignId: string;
+}): Promise<{ status: string; copiedCount: number }> => {
+  const response = await apiClient.post<{ status: string; copiedCount: number }>('/api/leads/bulk-copy', payload);
+  return response.data;
+};
+
+/**
+ * Bulk close leads.
+ */
+export const bulkCloseLeads = async (payload: {
+  leadIds: string[];
+  reason?: string;
+}): Promise<{ status: string; closedCount: number }> => {
+  const response = await apiClient.post<{ status: string; closedCount: number }>('/api/leads/bulk-close', payload);
+  return response.data;
+};
+
+/**
+ * Bulk delete leads (Admin only, requires typed confirmation "DELETE").
+ */
+export const bulkDeleteLeads = async (payload: {
+  leadIds: string[];
+  confirmation: 'DELETE';
+}): Promise<{ status: string; deletedCount: number }> => {
+  const response = await apiClient.post<{ status: string; deletedCount: number }>('/api/leads/bulk-delete', payload);
+  return response.data;
+};
+
+/**
  * Disposes a lead with outcome, stage, tag, follow-up, call duration, and remarks.
  */
 export const disposeLead = async (

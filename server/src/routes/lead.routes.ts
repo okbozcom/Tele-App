@@ -10,6 +10,11 @@ import {
   myLeadsQuerySchema,
   reassignLeadSchema,
   bulkReassignSchema,
+  bulkUpdateSchema,
+  bulkMoveSchema,
+  bulkCopySchema,
+  bulkCloseSchema,
+  bulkDeleteSchema,
   updateLeadSchema,
   getNextLeadSchema,
 } from '../validations/lead.validation';
@@ -82,6 +87,41 @@ leadsRouter.post(
   authorize('ADMIN', 'MANAGER'),
   validate(bulkReassignSchema),
   LeadController.bulkReassign,
+);
+
+leadsRouter.post(
+  '/bulk-update',
+  authorize('ADMIN', 'MANAGER'),
+  validate(bulkUpdateSchema),
+  LeadController.bulkUpdate,
+);
+
+leadsRouter.post(
+  '/bulk-move',
+  authorize('ADMIN', 'MANAGER'),
+  validate(bulkMoveSchema),
+  LeadController.bulkMove,
+);
+
+leadsRouter.post(
+  '/bulk-copy',
+  authorize('ADMIN', 'MANAGER'),
+  validate(bulkCopySchema),
+  LeadController.bulkCopy,
+);
+
+leadsRouter.post(
+  '/bulk-close',
+  authorize('ADMIN', 'MANAGER'),
+  validate(bulkCloseSchema),
+  LeadController.bulkClose,
+);
+
+leadsRouter.post(
+  '/bulk-delete',
+  authorize('ADMIN'),
+  validate(bulkDeleteSchema),
+  LeadController.bulkDelete,
 );
 
 // Lead disposition: assigned agent or ADMIN/MANAGER
