@@ -765,5 +765,178 @@ export class LeadService {
     });
     return { success: true };
   }
+
+  /**
+   * Retrieves the next lead atomically for unified calling desk (Spec 4.2).
+   * Employs findOneAndUpdate with lease-lock (lockedAt / lockedBy) to prevent race conditions.
+   * Supports 4 entry points: PRIORITY, CAMPAIGN, MY_LEADS, FILTER.
+   * Strictly excludes closed and suppressed leads (CONVERTED, LOST, Not Interested).
+   */
+  public static async getNextLead(
+    requester: IUserDoc,
+    input: {
+      mode?: 'PRIORITY' | 'CAMPAIGN' | 'MY_LEADS' | 'FILTER';
+      campaignId?: string;
+      statusQueue?: 'ALL' | 'NEW' | 'FOLLOW_UP' | 'NOT_CONNECTED' | 'INTERESTED';
+      stage?: string;
+      tag?: string;
+      excludeLeadIds?: string[];
+      leaseSeconds?: number;
+    },
+  ): Promise<{ lead: ILeadDoc | null; remainingCount: number }> {
+    const leaseSeconds = input.leaseSeconds || 120;
+    const leaseExpiryDate = new Date(Date.now() - leaseSeconds * 1000);
+
+    // 1. Build Base Match Filter
+    const filter: Record<string, any> = {
+      status: { $ne: 'CLOSED' },
+      stage: {
+        $nin: [
+          'CONVERTED',
+          'LOST',
+          'Not Interested',
+          'NOT INTERESTED',
+          'Customer Lost',
+          'DND',
+          'Converted',
+          'Lost',
+        ],
+      },
+    };
+
+    // 2. Scoping based on Role
+    if (requester.role === 'AGENT') {
+      filter.assignedTo = requester._id;
+    } else if (requester.role === 'MANAGER') {
+      const managerCampaigns = await Campaign.find({
+        $or: [{ managerId: requester._id }, { branch: requester.branch }],
+      }).select('_id');
+      const campIds = managerCampaigns.map((c) => c._id);
+      filter.campaignId = { $in: campIds };
+    } else if (requester.role === 'ADMIN') {
+      if (requester.branch) {
+        filter.branch = requester.branch;
+      }
+    }
+
+    // 3. Entry point / Mode scoping
+    if (input.mode === 'CAMPAIGN' && input.campaignId) {
+      filter.campaignId = new Types.ObjectId(input.campaignId);
+    } else if (input.mode === 'MY_LEADS' && input.statusQueue) {
+      if (input.statusQueue === 'NEW') {
+        filter.attemptCount = 0;
+        filter.stage = { $in: ['New', 'NEW'] };
+      } else if (input.statusQueue === 'FOLLOW_UP') {
+        filter.$or = [
+          { stage: { $in: ['Follow Up', 'Follow-up', 'FOLLOW UP'] } },
+          { nextFollowUpAt: { $ne: null } },
+        ];
+      } else if (input.statusQueue === 'NOT_CONNECTED') {
+        filter.$or = [
+          { stage: { $in: ['Not connected', 'NOT CONNECTED', 'Not Connected'] } },
+          { attemptCount: { $gt: 0 }, stage: { $in: ['New', 'NEW'] } },
+        ];
+      } else if (input.statusQueue === 'INTERESTED') {
+        filter.stage = { $in: ['Interested', 'INTERESTED'] };
+      }
+    } else if (input.mode === 'FILTER') {
+      if (input.stage) filter.stage = input.stage;
+      if (input.tag) filter.tag = input.tag;
+      if (input.campaignId) filter.campaignId = new Types.ObjectId(input.campaignId);
+    }
+
+    // 4. Exclude leads already visited or passed in excludeLeadIds
+    if (input.excludeLeadIds && input.excludeLeadIds.length > 0) {
+      filter._id = { $nin: input.excludeLeadIds.map((id) => new Types.ObjectId(id)) };
+    }
+
+    // 5. Lease Lock Condition: Lead must be unlocked, locked by this user, or lease expired
+    const lockCondition = {
+      $or: [
+        { lockedAt: null },
+        { lockedAt: { $lt: leaseExpiryDate } },
+        { lockedBy: requester._id },
+      ],
+    };
+
+    const finalQuery = { ...filter, ...lockCondition };
+
+    // 6. Two-Pass Strategy:
+    // Pass A: Check for Overdue / Due Follow-up (nextFollowUpAt <= now)
+    const now = new Date();
+    const followUpQuery = {
+      ...finalQuery,
+      nextFollowUpAt: { $ne: null, $lte: now },
+    };
+
+    let chosenLead: ILeadDoc | null = await Lead.findOneAndUpdate(
+      followUpQuery,
+      {
+        $set: {
+          lockedAt: now,
+          lockedBy: requester._id,
+        },
+      },
+      {
+        new: true,
+        sort: { nextFollowUpAt: 1 },
+      },
+    )
+      .populate('campaignId', 'name priority customFields script')
+      .populate('assignedTo', 'name email phone');
+
+    // Pass B: If no due follow-up, get next unattempted or earliest lead
+    if (!chosenLead) {
+      chosenLead = await Lead.findOneAndUpdate(
+        finalQuery,
+        {
+          $set: {
+            lockedAt: now,
+            lockedBy: requester._id,
+          },
+        },
+        {
+          new: true,
+          // Unattempted first, then next follow-up, then oldest
+          sort: { attemptCount: 1, nextFollowUpAt: 1, createdAt: 1 },
+        },
+      )
+        .populate('campaignId', 'name priority customFields script')
+        .populate('assignedTo', 'name email phone');
+    }
+
+    // 7. Calculate remaining count
+    const remainingCount = await Lead.countDocuments(filter);
+
+    return {
+      lead: chosenLead,
+      remainingCount,
+    };
+  }
+
+  /**
+   * Releases lease lock on a lead if locked by this user.
+   */
+  public static async unlockLead(requester: IUserDoc, leadId: string): Promise<boolean> {
+    if (!Types.ObjectId.isValid(leadId)) {
+      return false;
+    }
+
+    await Lead.updateOne(
+      {
+        _id: new Types.ObjectId(leadId),
+        $or: [{ lockedBy: requester._id }, { lockedAt: { $lt: new Date(Date.now() - 120 * 1000) } }],
+      },
+      {
+        $set: {
+          lockedAt: null,
+          lockedBy: null,
+        },
+      },
+    );
+
+    return true;
+  }
 }
+
 

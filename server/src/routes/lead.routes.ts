@@ -11,6 +11,7 @@ import {
   reassignLeadSchema,
   bulkReassignSchema,
   updateLeadSchema,
+  getNextLeadSchema,
 } from '../validations/lead.validation';
 import { disposeLeadSchema } from '../validations/activity.validation';
 
@@ -88,6 +89,10 @@ leadsRouter.post('/:id/dispose', validate(disposeLeadSchema), ActivityController
 
 // Lead call activity history
 leadsRouter.get('/:id/history', ActivityController.getLeadHistory);
+
+// Next lead cursor with atomic lease lock (NeoDove Spec 4.2)
+leadsRouter.post('/next', validate(getNextLeadSchema), LeadController.getNextLead);
+leadsRouter.post('/:id/unlock', LeadController.unlockLead);
 
 // Update lead details (e.g. name, phone, email)
 leadsRouter.patch('/:id', validate(updateLeadSchema), LeadController.updateLead);

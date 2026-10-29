@@ -745,3 +745,38 @@ export const batchSyncActivities = async (
   return response.data;
 };
 
+export interface NextLeadParams {
+  mode: 'PRIORITY' | 'CAMPAIGN' | 'MY_LEADS' | 'FILTER';
+  campaignId?: string;
+  statusQueue?: 'ALL' | 'NEW' | 'FOLLOW_UP' | 'NOT_CONNECTED' | 'INTERESTED';
+  stage?: string;
+  tag?: string;
+  excludeLeadIds?: string[];
+  leaseSeconds?: number;
+}
+
+export interface NextLeadResponse {
+  status: 'success';
+  lead: Lead | null;
+  remainingCount: number;
+}
+
+/**
+ * Fetches the next lead atomically for unified calling desk with lease lock (Spec 4.2).
+ */
+export const fetchNextLead = async (params: NextLeadParams): Promise<NextLeadResponse> => {
+  const response = await apiClient.post<NextLeadResponse>('/api/leads/next', params);
+  return response.data;
+};
+
+/**
+ * Releases lease lock on a lead if dialing was cancelled without attempt.
+ */
+export const unlockLead = async (leadId: string): Promise<{ status: string; unlocked: boolean }> => {
+  const response = await apiClient.post<{ status: string; unlocked: boolean }>(
+    `/api/leads/${leadId}/unlock`,
+  );
+  return response.data;
+};
+
+

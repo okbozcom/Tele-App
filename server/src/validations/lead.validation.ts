@@ -78,9 +78,22 @@ export const updateLeadSchema = z.object({
   }),
 });
 
+export const getNextLeadSchema = z.object({
+  body: z.object({
+    mode: z.enum(['PRIORITY', 'CAMPAIGN', 'MY_LEADS', 'FILTER']).default('PRIORITY'),
+    campaignId: z.string().regex(objectIdRegex, 'Invalid campaign ID format').optional(),
+    statusQueue: z.enum(['ALL', 'NEW', 'FOLLOW_UP', 'NOT_CONNECTED', 'INTERESTED']).optional(),
+    stage: z.string().optional(),
+    tag: z.string().optional(),
+    excludeLeadIds: z.array(z.string().regex(objectIdRegex)).optional(),
+    leaseSeconds: z.number().min(10).max(600).optional().default(120),
+  }),
+});
+
 export type CreateLeadInput = z.infer<typeof createLeadSchema>['body'];
 export type ListCampaignLeadsQuery = z.infer<typeof listCampaignLeadsQuerySchema>['query'];
 export type MyLeadsQuery = z.infer<typeof myLeadsQuerySchema>['query'];
 export type ReassignLeadInput = z.infer<typeof reassignLeadSchema>['body'];
 export type BulkReassignInput = z.infer<typeof bulkReassignSchema>['body'];
 export type UpdateLeadInput = z.infer<typeof updateLeadSchema>['body'];
+export type GetNextLeadInput = z.infer<typeof getNextLeadSchema>['body'];

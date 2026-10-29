@@ -84,6 +84,7 @@ interface ScreenshotLead {
   status: 'New' | 'Interested' | 'Follow-up' | 'Not connected' | 'Not Interested';
   priority: 'High' | 'Medium' | 'Low';
   lastContact: string;
+  rawLead?: Lead;
 }
 
 // ======================================================================
@@ -450,6 +451,7 @@ const MyLeadsScreenContent: React.FC = () => {
               minute: '2-digit',
             })
           : 'Never',
+        rawLead: l,
       };
     });
   }, [effectiveLeadsData, isAgent, user]);
@@ -509,10 +511,15 @@ const MyLeadsScreenContent: React.FC = () => {
 
       // Campaign filter (scoped strictly to selected campaign)
       if (selectedCampaign !== 'All campaigns') {
-        const matchesName = (lead.campaignName || '').toLowerCase() === selCampLower;
-        const matchesId = selectedCampaignId && lead.campaignId === selectedCampaignId;
-        if (!matchesName && !matchesId) {
-          return false;
+        if (selectedCampaignId && lead.campaignId) {
+          if (lead.campaignId !== selectedCampaignId) {
+            return false;
+          }
+        } else {
+          const matchesName = (lead.campaignName || '').toLowerCase() === selCampLower;
+          if (!matchesName) {
+            return false;
+          }
         }
       }
 
@@ -660,9 +667,13 @@ const MyLeadsScreenContent: React.FC = () => {
 
   // Handle Open Lead Modal
   const handleOpenLead = (item: ScreenshotLead) => {
+    if (item.rawLead) {
+      setQuickModalLead(item.rawLead);
+      return;
+    }
     const syntheticLead: Lead = {
       _id: item._id,
-      campaignId: 'default-camp',
+      campaignId: item.campaignId || 'default-camp',
       name: item.name,
       phone: item.phone,
       source: 'WALK_IN',

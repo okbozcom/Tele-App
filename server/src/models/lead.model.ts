@@ -18,6 +18,8 @@ export interface ILead {
   followUpDue: boolean;
   lastContactedAt?: Date | null;
   attemptCount: number;
+  lockedAt?: Date | null;
+  lockedBy?: Types.ObjectId | null;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -106,6 +108,17 @@ const leadSchema = new Schema<ILeadDoc>(
       default: 0,
       min: 0,
     },
+    lockedAt: {
+      type: Date,
+      default: null,
+      index: true,
+    },
+    lockedBy: {
+      type: Schema.Types.ObjectId,
+      ref: 'User',
+      default: null,
+      index: true,
+    },
   },
   {
     timestamps: true,
@@ -120,6 +133,10 @@ leadSchema.index({ campaignId: 1, assignedTo: 1, status: 1, nextFollowUpAt: 1 })
 
 // Compound index for agent's my-leads queue and follow-up sorting
 leadSchema.index({ assignedTo: 1, status: 1, nextFollowUpAt: 1 });
+
+// Compound index for atomic lease locking and cursor retrieval
+leadSchema.index({ assignedTo: 1, status: 1, lockedAt: 1, nextFollowUpAt: 1 });
+leadSchema.index({ campaignId: 1, status: 1, lockedAt: 1, nextFollowUpAt: 1 });
 
 // High-speed compound indexes for 50k+ volume scaling:
 leadSchema.index({ assignedTo: 1, status: 1, stage: 1, createdAt: -1 });

@@ -66,6 +66,7 @@ interface FollowUpItem {
   temperature?: 'HOT' | 'WARM' | 'COLD';
   rawDate: Date;
   lastRemark?: string;
+  rawLead?: Lead;
 }
 
 // Design Tokens (Hi Talk brand palette)
@@ -325,6 +326,10 @@ export const FollowUpsScreen: React.FC = () => {
   });
 
   const handleOpenLead = useCallback((item: FollowUpItem) => {
+    if (item.rawLead) {
+      setQuickModalLead(item.rawLead);
+      return;
+    }
     const syntheticLead: Lead = {
       _id: item._id,
       campaignId: item.campaignId || 'default-camp',
@@ -350,12 +355,8 @@ export const FollowUpsScreen: React.FC = () => {
       toast.warning('A call is already in progress');
       return;
     }
-    isCallingRef.current = true;
-    setTimeout(() => {
-      isCallingRef.current = false;
-    }, 2000);
 
-    const fullLead: Lead = {
+    const fullLead: Lead = item.rawLead || {
       _id: item._id,
       campaignId: item.campaignId || 'default-camp',
       name: item.name || 'Lead Contact',
@@ -552,6 +553,7 @@ export const FollowUpsScreen: React.FC = () => {
         temperature: temp,
         rawDate: dateObj,
         lastRemark: lastNote,
+        rawLead: l,
       });
     }
 

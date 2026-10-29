@@ -387,4 +387,39 @@ export class LeadController {
       next(err);
     }
   }
+
+  public static async getNextLead(
+    req: Request,
+    res: Response,
+    next: NextFunction,
+  ): Promise<void> {
+    try {
+      if (!req.user) {
+        throw new AppError('Authentication required', 401);
+      }
+
+      const result = await LeadService.getNextLead(req.user, req.body);
+      res.status(200).json({ status: 'success', ...result });
+    } catch (err) {
+      next(err);
+    }
+  }
+
+  public static async unlockLead(
+    req: Request,
+    res: Response,
+    next: NextFunction,
+  ): Promise<void> {
+    try {
+      if (!req.user) {
+        throw new AppError('Authentication required', 401);
+      }
+
+      const result = await LeadService.unlockLead(req.user, req.params.id);
+      res.status(200).json({ status: 'success', unlocked: result });
+    } catch (err) {
+      next(err);
+    }
+  }
 }
+
