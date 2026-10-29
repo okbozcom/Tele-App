@@ -657,3 +657,91 @@ export const fetchTaggedLeads = async (): Promise<TaggedLeadResponse[]> => {
 export const dismissTaggedLead = async (tagId: string): Promise<void> => {
   await apiClient.post(`/api/leads/tagged/${tagId}/dismiss`);
 };
+
+export interface TodayStatsResponse {
+  userId: string;
+  dayIST: string;
+  attempts: number;
+  connected: number;
+  notConnected: number;
+  talkSeconds: number;
+  incoming: number;
+  noAttempt: number;
+  mismatches: number;
+  connectRate: number;
+  firstCallAt: string | null;
+  lastCallAt: string | null;
+  asOf: string;
+}
+
+export interface TeamStatsResponse {
+  stats: Array<{
+    userId: string;
+    name: string;
+    email: string;
+    branch: string | null;
+    attempts: number;
+    connected: number;
+    notConnected: number;
+    talkSeconds: number;
+    incoming: number;
+    noAttempt: number;
+    mismatches: number;
+    connectRate: number;
+  }>;
+  date: string;
+  asOf: string;
+}
+
+/**
+ * Fetches today's atomic calling stats for the authenticated user from DailyStat.
+ */
+export const fetchTodayStats = async (date?: string): Promise<TodayStatsResponse> => {
+  const response = await apiClient.get<TodayStatsResponse>('/api/stats/today', {
+    params: date ? { date } : undefined,
+  });
+  return response.data;
+};
+
+/**
+ * Fetches team stats for managers and admins from DailyStat.
+ */
+export const fetchTeamStats = async (params: {
+  date?: string;
+  branch?: string;
+  campaignId?: string;
+}): Promise<TeamStatsResponse> => {
+  const response = await apiClient.get<TeamStatsResponse>('/api/stats/team', {
+    params,
+  });
+  return response.data;
+};
+
+/**
+ * Fetches date-range stats for reports and trends from DailyStat.
+ */
+export const fetchRangeStats = async (params: {
+  from: string;
+  to: string;
+  branch?: string;
+  campaignId?: string;
+}): Promise<{ data: any[]; asOf: string }> => {
+  const response = await apiClient.get<{ data: any[]; asOf: string }>('/api/stats/range', {
+    params,
+  });
+  return response.data;
+};
+
+/**
+ * Flushes offline activities in an idempotent batch (max 50 items).
+ */
+export const batchSyncActivities = async (
+  events: any[],
+): Promise<{ results: any[]; total: number; succeeded: number }> => {
+  const response = await apiClient.post<{ results: any[]; total: number; succeeded: number }>(
+    '/api/sync/batch',
+    { events },
+  );
+  return response.data;
+};
+

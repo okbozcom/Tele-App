@@ -24,6 +24,15 @@ export interface IActivity {
   leadId: Types.ObjectId;
   campaignId: Types.ObjectId;
   userId: Types.ObjectId;
+  clientEventId?: string | null;
+  startedAt?: Date | null;
+  endedAt?: Date | null;
+  durationSource?: 'DEVICE_CALL_LOG' | 'APP_ESTIMATE';
+  dispositionMismatch?: boolean;
+  noAttempt?: boolean;
+  clientTimestamp?: Date | null;
+  serverReceivedAt?: Date;
+  dayIST?: string;
   phone?: string | null;
   branch?: string | null;
   type: 'CALL' | 'UPDATE';
@@ -80,6 +89,46 @@ const activitySchema = new Schema<IActivityDoc>(
       type: Schema.Types.ObjectId,
       ref: 'User',
       required: [true, 'User ID is required'],
+      index: true,
+    },
+    clientEventId: {
+      type: String,
+      default: null,
+      trim: true,
+    },
+    startedAt: {
+      type: Date,
+      default: null,
+    },
+    endedAt: {
+      type: Date,
+      default: null,
+    },
+    durationSource: {
+      type: String,
+      enum: ['DEVICE_CALL_LOG', 'APP_ESTIMATE'],
+      default: 'APP_ESTIMATE',
+    },
+    dispositionMismatch: {
+      type: Boolean,
+      default: false,
+    },
+    noAttempt: {
+      type: Boolean,
+      default: false,
+    },
+    clientTimestamp: {
+      type: Date,
+      default: null,
+    },
+    serverReceivedAt: {
+      type: Date,
+      default: Date.now,
+    },
+    dayIST: {
+      type: String,
+      default: null,
+      trim: true,
       index: true,
     },
     type: {
@@ -172,10 +221,13 @@ const activitySchema = new Schema<IActivityDoc>(
   },
 );
 
+activitySchema.index({ userId: 1, clientEventId: 1 }, { unique: true, sparse: true });
 activitySchema.index({ idempotencyKey: 1 }, { unique: true, sparse: true });
 activitySchema.index({ leadId: 1, createdAt: -1 });
 activitySchema.index({ phone: 1, direction: 1, createdAt: -1 });
 activitySchema.index({ userId: 1, direction: 1, createdAt: -1 });
+activitySchema.index({ userId: 1, dayIST: 1, createdAt: -1 });
+activitySchema.index({ dayIST: 1, branch: 1 });
 activitySchema.index({ phone: 1, createdAt: -1 });
 activitySchema.index({ branch: 1, createdAt: -1 });
 activitySchema.index({ userId: 1, createdAt: -1 });

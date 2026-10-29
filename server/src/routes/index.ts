@@ -11,6 +11,8 @@ import reportRoutes from './report.routes';
 import branchRoutes from './branch.routes';
 import auditRoutes from './audit.routes';
 import agentBreakRoutes from './agent-break.routes';
+import statRoutes from './stat.routes';
+import syncRoutes from './sync.routes';
 
 const router = Router();
 
@@ -24,6 +26,8 @@ router.use('/leads', leadsRouter);
 router.use('/settings', settingRoutes);
 router.use('/retry-rules', retryRuleRoutes);
 router.use('/reports', reportRoutes);
+router.use('/stats', statRoutes);
+router.use('/sync', syncRoutes);
 router.use('/branches', branchRoutes);
 router.use('/audit-logs', auditRoutes);
 router.use('/breaks', agentBreakRoutes);

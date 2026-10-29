@@ -186,16 +186,16 @@ This document serves as the master blueprint, audit, and living progress tracker
   - [x] Produce `OPEN_QUESTIONS.md`
   - [x] Produce `LOAD_AUDIT.md`
   - [x] Verify all 62 server tests pass green
-- [ ] **Phase 1 — Shared Foundations**
-  - [ ] Shared IST calendar day helper (`Asia/Kolkata` day boundary computed on server)
-  - [ ] Canonical call direction helper (`isActivityIncoming`)
-  - [ ] Client-generated `clientEventId` (UUID) with unique compound index `(userId, clientEventId)`
-  - [ ] `DailyStat` Mongoose model + atomic `$inc` updates on Activity writes
-  - [ ] Endpoints: `GET /api/stats/today`, `GET /api/stats/team`, `GET /api/stats/range`
-  - [ ] Mobile shared `useDailyStats` hook
-  - [ ] Request layer: deduplication, stale-while-revalidate, AbortController cancellation
-  - [ ] Batch sync endpoint: `POST /api/sync/batch`
-  - [ ] Mongo compound indexes & scheduler distributed leader lock
+- [x] **Phase 1 — Shared Foundations**
+  - [x] Shared IST calendar day helper (`Asia/Kolkata` day boundary computed on server)
+  - [x] Canonical call direction helper (`isActivityIncoming`)
+  - [x] Client-generated `clientEventId` (UUID) with unique compound index `(userId, clientEventId)`
+  - [x] `DailyStat` Mongoose model + atomic `$inc` updates on Activity writes
+  - [x] Endpoints: `GET /api/stats/today`, `GET /api/stats/team`, `GET /api/stats/range`
+  - [x] Mobile shared `useDailyStats` hook
+  - [x] Request layer: deduplication, stale-while-revalidate, AbortController cancellation
+  - [x] Batch sync endpoint: `POST /api/sync/batch`
+  - [x] Mongo compound indexes & scheduler distributed leader lock
 - [ ] **Phase 2 — Call Module**
   - [ ] Dual-SIM selection helper & persistence
   - [ ] Auto-dial delay setting & countdown modal

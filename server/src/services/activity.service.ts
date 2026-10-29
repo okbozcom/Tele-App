@@ -9,6 +9,8 @@ import { RetryRuleService } from './retry-rule.service';
 import { LeadIngestService } from './lead-ingest.service';
 import { AuditService } from './audit.service';
 import { DisposeLeadInput } from '../validations/activity.validation';
+import { DailyStatService } from './daily-stat.service';
+import { resolveCallDate } from '../utils/dateUtils';
 import { AppError } from '../utils/AppError';
 
 export interface DisposeResult {
@@ -34,7 +36,21 @@ export class ActivityService {
       lead = await Lead.findOne({ phone: { $regex: cleanPhone } });
     }
 
-    // Check IdempotencyKey first: If already processed, return existing activity and lead
+    // Check clientEventId and idempotencyKey: If already processed, return existing activity and lead
+    if (input.clientEventId) {
+      const existingByClientEventId = await Activity.findOne({
+        userId: requester._id,
+        clientEventId: input.clientEventId,
+      });
+      if (existingByClientEventId) {
+        const resolvedLead = lead || (await Lead.findById(existingByClientEventId.leadId));
+        return {
+          activity: existingByClientEventId,
+          lead: resolvedLead!,
+        };
+      }
+    }
+
     if (input.idempotencyKey) {
       const existingActivity = await Activity.findOne({ idempotencyKey: input.idempotencyKey });
       if (existingActivity) {
@@ -46,21 +62,8 @@ export class ActivityService {
       }
     }
 
-    // If still not found, locate a default campaign and auto-create/upsert lead
     if (!lead) {
-      const defaultCampaign = await Campaign.findOne();
-      if (!defaultCampaign) {
-        throw new AppError('Lead not found and no active campaign exists', 404);
-      }
-      const rawPhone = candidatePhone || '9810000129';
-      lead = await Lead.create({
-        name: 'Lead ' + rawPhone.slice(-4),
-        phone: rawPhone,
-        campaignId: defaultCampaign._id,
-        assignedTo: requester._id,
-        stage: input.stage || 'New',
-        status: 'OPEN',
-      });
+      throw new AppError('Lead not found', 404);
     }
 
     let campaign = await Campaign.findById(lead.campaignId);
@@ -294,6 +297,16 @@ export class ActivityService {
     }
     await lead.save();
 
+    const duration = isCallAttempt && input.connected ? input.durationSeconds || 0 : 0;
+    const isMismatch = input.dispositionMismatch ?? (
+      (!input.connected && duration > 20) ||
+      (input.connected && duration === 0 && input.durationSource === 'DEVICE_CALL_LOG')
+    );
+
+    const { callDate, dayIST } = resolveCallDate(input.startedAt || input.clientTimestamp || new Date());
+    const startedAt = input.startedAt ? new Date(input.startedAt) : callDate;
+    const endedAt = input.endedAt ? new Date(input.endedAt) : (duration > 0 ? new Date(startedAt.getTime() + duration * 1000) : null);
+
     // Create Activity log
     const activity = await Activity.create({
       leadId: lead._id,
@@ -301,6 +314,15 @@ export class ActivityService {
       branch: (requester as { branch?: string }).branch || (lead as { branch?: string }).branch || null,
       campaignId: lead.campaignId,
       userId: requester._id,
+      clientEventId: input.clientEventId || null,
+      startedAt,
+      endedAt,
+      durationSource: input.durationSource || 'APP_ESTIMATE',
+      dispositionMismatch: Boolean(isMismatch),
+      noAttempt: Boolean(input.noAttempt),
+      clientTimestamp: input.clientTimestamp ? new Date(input.clientTimestamp) : null,
+      serverReceivedAt: new Date(),
+      dayIST,
       type: isCallAttempt ? 'CALL' : 'UPDATE',
       direction: input.direction || 'OUTGOING',
       connected: isCallAttempt && input.connected,
@@ -310,7 +332,7 @@ export class ActivityService {
       tag: lead.tag || input.tag || null,
       remark: input.remark || null,
       followUpAt: lead.nextFollowUpAt,
-      durationSeconds: isCallAttempt && input.connected ? input.durationSeconds || 0 : 0,
+      durationSeconds: duration,
       answers: input.answers || [],
       callLogId: input.callLogId || null,
       idempotencyKey: input.idempotencyKey || null,
@@ -318,6 +340,13 @@ export class ActivityService {
       dealAmount: input.dealAmount ?? null,
       currency: input.currency || 'INR',
     });
+
+    // Atomically record into DailyStat
+    try {
+      await DailyStatService.recordActivity(activity);
+    } catch (statErr) {
+      console.error('[ActivityService] Error updating DailyStat:', statErr);
+    }
 
     return { activity, lead };
   }

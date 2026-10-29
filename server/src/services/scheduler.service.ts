@@ -4,6 +4,7 @@ import { Campaign } from '../models/campaign.model';
 import { User } from '../models/user.model';
 import { SettingService } from './setting.service';
 import { LeadAssignmentService } from './lead-assignment.service';
+import { DailyStatService } from './daily-stat.service';
 import { DistributedLock } from '../utils/distributedLock';
 
 export interface ISchedulerService {
@@ -17,6 +18,13 @@ export class CronSchedulerService implements ISchedulerService {
   private tasks: ScheduledTask[] = [];
 
   public start(): void {
+    // Only run on PM2 instance 0 (or standalone) to prevent duplicate cron execution in cluster
+    const instanceId = process.env.NODE_APP_INSTANCE;
+    if (instanceId !== undefined && instanceId !== '0') {
+      console.log(`[Scheduler] Skipping scheduler on PM2 instance ${instanceId}. Runs only on instance 0.`);
+      return;
+    }
+
     // Check due follow-ups every minute with PM2 cluster distributed lock
     const followUpTask = cron.schedule('* * * * *', async () => {
       const lockKey = 'SCHEDULER_CHECK_FOLLOWUPS';
@@ -47,7 +55,23 @@ export class CronSchedulerService implements ISchedulerService {
       }
     });
 
-    this.tasks.push(followUpTask, reassignTask);
+    // Nightly DailyStat reconciliation job at 00:05 IST (18:35 UTC)
+    const reconcileTask = cron.schedule('35 18 * * *', async () => {
+      const lockKey = 'SCHEDULER_RECONCILE_STATS';
+      const acquired = await DistributedLock.acquire(lockKey, 600);
+      if (!acquired) return;
+
+      try {
+        const result = await DailyStatService.reconcileDailyStats(3);
+        console.log(`[Scheduler] Nightly DailyStat reconciliation completed for ${result.reconciledDays} days.`);
+      } catch (err) {
+        console.error('[Scheduler] Error in nightly DailyStat reconciliation:', err);
+      } finally {
+        await DistributedLock.release(lockKey);
+      }
+    });
+
+    this.tasks.push(followUpTask, reassignTask, reconcileTask);
     console.log('[Scheduler] CronSchedulerService started.');
   }
 
