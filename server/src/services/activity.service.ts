@@ -573,4 +573,65 @@ export class ActivityService {
 
     return stats;
   }
+
+  public static async attachRecording(
+    requester: IUserDoc,
+    activityId: string,
+    recordingUrl: string,
+  ): Promise<IActivityDoc> {
+    if (!Types.ObjectId.isValid(activityId)) {
+      throw new AppError('Invalid activity ID format', 400);
+    }
+    const activity = await Activity.findById(activityId);
+    if (!activity) {
+      throw new AppError('Activity not found', 404);
+    }
+
+    if (requester.role === 'AGENT' && activity.userId.toString() !== requester._id.toString()) {
+      throw new AppError('Forbidden: You can only attach recordings to your own activities', 403);
+    }
+
+    activity.recordingUrl = recordingUrl;
+    await activity.save();
+
+    await AuditService.log({
+      userId: requester._id,
+      userEmail: requester.email,
+      userRole: requester.role,
+      action: 'ACTIVITY_RECORDING_ATTACH',
+      resourceType: 'LEAD',
+      resourceId: activity.leadId.toString(),
+      details: { activityId: activity._id.toString(), recordingUrl },
+    });
+
+    return activity;
+  }
+
+  public static async getRecording(
+    requester: IUserDoc,
+    activityId: string,
+  ): Promise<{ recordingUrl: string; durationSeconds: number }> {
+    if (!Types.ObjectId.isValid(activityId)) {
+      throw new AppError('Invalid activity ID format', 400);
+    }
+
+    const settings = await SettingService.getSettings();
+    if (settings.allowCallRecordingPlayback === false && requester.role !== 'ADMIN') {
+      throw new AppError('Forbidden: Call recording playback is disabled by policy', 403);
+    }
+
+    const activity = await Activity.findById(activityId);
+    if (!activity) {
+      throw new AppError('Activity not found', 404);
+    }
+
+    if (!activity.recordingUrl) {
+      throw new AppError('No recording available for this call', 404);
+    }
+
+    return {
+      recordingUrl: activity.recordingUrl,
+      durationSeconds: activity.durationSeconds || 0,
+    };
+  }
 }

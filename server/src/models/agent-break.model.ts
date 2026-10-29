@@ -8,6 +8,7 @@ export interface IAgentBreak {
   startTime: Date;
   endTime?: Date | null;
   durationMinutes?: number | null;
+  exceededThreshold?: boolean;
   isActive: boolean;
   createdAt: Date;
   updatedAt: Date;
@@ -40,6 +41,10 @@ const agentBreakSchema = new Schema<IAgentBreakDoc>(
     durationMinutes: {
       type: Number,
       default: null,
+    },
+    exceededThreshold: {
+      type: Boolean,
+      default: false,
     },
     isActive: {
       type: Boolean,

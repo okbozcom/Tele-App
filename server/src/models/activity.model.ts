@@ -49,6 +49,7 @@ export interface IActivity {
   classificationReason?: string | null;
   dealAmount?: number | null;
   currency?: string | null;
+  recordingUrl?: string | null;
   answers: IEngagementAnswer[];
   createdAt: Date;
   updatedAt: Date;
@@ -197,6 +198,11 @@ const activitySchema = new Schema<IActivityDoc>(
     currency: {
       type: String,
       default: 'INR',
+      trim: true,
+    },
+    recordingUrl: {
+      type: String,
+      default: null,
       trim: true,
     },
     answers: {

@@ -14,6 +14,7 @@ import agentBreakRoutes from './agent-break.routes';
 import statRoutes from './stat.routes';
 import syncRoutes from './sync.routes';
 import taskRoutes from './task.routes';
+import { workSessionRoutes } from './work-session.routes';
 
 const router = Router();
 
@@ -25,6 +26,7 @@ router.use('/campaigns/:id/leads', campaignLeadsRouter);
 router.use('/campaigns', campaignRoutes);
 router.use('/leads', leadsRouter);
 router.use('/tasks', taskRoutes);
+router.use('/sessions', workSessionRoutes);
 router.use('/settings', settingRoutes);
 router.use('/retry-rules', retryRuleRoutes);
 router.use('/reports', reportRoutes);

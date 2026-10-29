@@ -130,6 +130,10 @@ leadsRouter.post('/:id/dispose', validate(disposeLeadSchema), ActivityController
 // Lead call activity history
 leadsRouter.get('/:id/history', ActivityController.getLeadHistory);
 
+// Activity call recording playback and attach (NeoDove Spec 4.7)
+leadsRouter.get('/activities/:id/recording', ActivityController.getRecording);
+leadsRouter.post('/activities/:id/recording', ActivityController.attachRecording);
+
 // Next lead cursor with atomic lease lock (NeoDove Spec 4.2)
 leadsRouter.post('/next', validate(getNextLeadSchema), LeadController.getNextLead);
 leadsRouter.post('/:id/unlock', LeadController.unlockLead);
