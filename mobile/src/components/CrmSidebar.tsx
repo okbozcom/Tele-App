@@ -296,7 +296,7 @@ export const CrmSidebarContent: React.FC<{
                 collapsed && styles.navBtnCollapsed,
                 isActive && styles.navBtnActive,
               ]}
-              onPress={() => handleNav(item.route)}
+              onPress={() => handleNav(item.route, item.action)}
               activeOpacity={0.75}
             >
               <Icon
