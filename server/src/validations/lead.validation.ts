@@ -39,6 +39,7 @@ export const myLeadsQuerySchema = z.object({
     type: z.enum(['NEW', 'FOLLOW_UP', 'NOT_CONNECTED', 'ALL']).default('ALL'),
     campaignId: z.string().regex(objectIdRegex, 'Invalid campaign ID format').optional(),
     userId: z.string().regex(objectIdRegex, 'Invalid user ID format').optional(),
+    search: z.string().optional(),
     page: z
       .string()
       .optional()

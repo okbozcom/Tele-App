@@ -17,7 +17,7 @@ import {
   RefreshControl,
   Platform,
 } from 'react-native';
-import { useNavigation } from '@react-navigation/native';
+import { useNavigation, useFocusEffect } from '@react-navigation/native';
 import { useSidebarStore } from '../store/sidebarStore';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
@@ -322,11 +322,17 @@ const MyLeadsScreenContent: React.FC = () => {
     refetch,
   } = useQuery({
     queryKey: ['myLeadsList', user?._id],
-    queryFn: () => fetchMyLeads({ limit: 500 }),
+    queryFn: () => fetchMyLeads({ limit: 5000 }),
     refetchInterval: 60000,
     refetchIntervalInBackground: false,
-    staleTime: 1000 * 60 * 3, // 3 minutes cache TTL
+    staleTime: 1000 * 30, // 30 seconds TTL so lead updates reflect promptly
   });
+
+  useFocusEffect(
+    useCallback(() => {
+      refetch();
+    }, [refetch]),
+  );
 
   useEffect(() => {
     if (leadsData && Array.isArray(leadsData.leads)) {
@@ -349,7 +355,7 @@ const MyLeadsScreenContent: React.FC = () => {
       if (aCalled === 1 && bCalled === 1) {
         const aTime = a?.lastContactedAt ? new Date(a.lastContactedAt).getTime() : 0;
         const bTime = b?.lastContactedAt ? new Date(b.lastContactedAt).getTime() : 0;
-        if (aTime !== bTime) return aTime - bTime;
+        if (aTime !== bTime) return bTime - aTime; // Most recently contacted first
       }
       return 0;
     });
@@ -534,21 +540,6 @@ const MyLeadsScreenContent: React.FC = () => {
 
       const isLost = isLeadLostOrSuppressed(lead as any) || lead.status === 'Not Interested';
 
-      // Status filter
-      if (selectedFilter === 'All') {
-        // By default in All (Active Working Leads), hide Customer Lost / Not Interested so telecallers don't disturb them (unless actively searching)
-        if (!q && isLost) {
-          return false;
-        }
-      } else if (selectedFilter === 'Not Interested') {
-        // Strictly show Customer Lost in this archive tab
-        if (!isLost) {
-          return false;
-        }
-      } else if (lead.status !== selectedFilter) {
-        return false;
-      }
-
       // Search query (debounced)
       if (q) {
         const qDigits = q.replace(/\D/g, '');
@@ -558,12 +549,41 @@ const MyLeadsScreenContent: React.FC = () => {
           (lead.phone || '').toLowerCase().includes(q) ||
           (qDigits.length >= 4 && (phoneDigits.includes(qDigits) || rawPhoneDigits.includes(qDigits)));
 
-        return (
+        const matchesQuery =
           phoneMatches ||
           (lead.name || '').toLowerCase().includes(q) ||
-          (lead.campaignName || '').toLowerCase().includes(q)
-        );
+          (lead.campaignName || '').toLowerCase().includes(q);
+
+        if (!matchesQuery) {
+          return false;
+        }
+
+        // Direct phone number searches show the lead across active tabs
+        if (selectedFilter !== 'All' && selectedFilter !== 'Not Interested') {
+          if (lead.status !== selectedFilter && (!phoneMatches || qDigits.length < 7)) {
+            return false;
+          }
+        } else if (selectedFilter === 'Not Interested') {
+          if (!isLost) {
+            return false;
+          }
+        }
+        return true;
       }
+
+      // Status filter when not searching
+      if (selectedFilter === 'All') {
+        if (isLost) {
+          return false;
+        }
+      } else if (selectedFilter === 'Not Interested') {
+        if (!isLost) {
+          return false;
+        }
+      } else if (lead.status !== selectedFilter) {
+        return false;
+      }
+
       return true;
     });
   }, [combinedLeads, selectedFilter, selectedCampaign, debouncedSearch, selectedCampaignId, isManagerOrAdmin, assignmentScope, user?._id]);

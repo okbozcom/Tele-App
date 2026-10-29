@@ -808,7 +808,7 @@ export const LeadDetailScreen: React.FC = () => {
         };
       });
 
-      queryClient.setQueryData(['myLeadsList'], (old: any) => {
+      const updateLeadListCache = (old: any) => {
         if (!old?.leads) return old;
         const remaining = old.leads.filter((l: Lead) => l._id !== currentLead._id);
         const updatedCurrent: Lead = {
@@ -821,9 +821,14 @@ export const LeadDetailScreen: React.FC = () => {
         };
         return {
           ...old,
-          leads: isClosing ? remaining : [...remaining, updatedCurrent],
+          leads: isClosing ? remaining : [updatedCurrent, ...remaining],
         };
-      });
+      };
+
+      if (user?._id) {
+        queryClient.setQueryData(['myLeadsList', user._id], updateLeadListCache);
+      }
+      queryClient.setQueryData(['myLeadsList'], updateLeadListCache);
 
       queryClient.invalidateQueries({ queryKey: ['myLeads'] });
       queryClient.invalidateQueries({ queryKey: ['myLeadsList'] });

@@ -28,6 +28,7 @@ export interface MyLeadsParams {
   type?: LeadFilterType;
   campaignId?: string;
   userId?: string;
+  search?: string;
   page?: number;
   limit?: number;
 }
@@ -48,6 +49,9 @@ export const fetchMyLeads = async (params: MyLeadsParams): Promise<MyLeadsRespon
   }
   if (params.userId) {
     queryParams.userId = params.userId;
+  }
+  if (params.search) {
+    queryParams.search = params.search;
   }
 
   const response = await apiClient.get<MyLeadsResponse>('/api/leads/my', {

@@ -313,5 +313,24 @@ describe('Production RBAC & Service Authorization Integration Tests', () => {
       assert.ok(projectStage.assignedToId, 'assignedToId field must be explicitly projected');
       assert.ok(projectStage.campaign, 'campaign field must be projected');
     });
+
+    it('applies search filter in getMyLeads when search parameter is provided', async () => {
+      const adminId = new Types.ObjectId();
+      const requester = { _id: adminId, role: 'ADMIN' };
+
+      let capturedPipeline = null;
+      mock.method(Lead, 'aggregate', async (pipeline) => {
+        capturedPipeline = pipeline;
+        return [{ metadata: [{ total: 1 }], data: [{ _id: 'l1', phone: '8754272093' }] }];
+      });
+
+      const res = await LeadService.getMyLeads(requester, { search: '8754272093', type: 'ALL' });
+
+      assert.equal(res.total, 1);
+      assert.ok(capturedPipeline);
+      const matchStage = capturedPipeline[0].$match;
+      assert.ok(matchStage.$or, '$or search conditions must be present in matchStage');
+      assert.ok(matchStage.$or.some((c) => c.phone instanceof RegExp));
+    });
   });
 });

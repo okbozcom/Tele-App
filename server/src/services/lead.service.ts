@@ -206,6 +206,21 @@ export class LeadService {
       matchStage.attemptCount = { $gt: 0 };
     }
 
+    if (query.search && query.search.trim()) {
+      const q = query.search.trim();
+      const qDigits = q.replace(/\D/g, '');
+      const searchRegex = new RegExp(q, 'i');
+      const orConditions: Record<string, unknown>[] = [
+        { name: searchRegex },
+        { phone: searchRegex },
+        { email: searchRegex },
+      ];
+      if (qDigits.length >= 4) {
+        orConditions.push({ phone: new RegExp(qDigits, 'i') });
+      }
+      matchStage.$or = orConditions;
+    }
+
     const page = query.page || 1;
     const limit = query.limit || 20;
     const skip = (page - 1) * limit;
@@ -286,7 +301,8 @@ export class LeadService {
             : {
                 contactedRank: 1,
                 priorityRank: 1,
-                lastContactedSort: 1,
+                lastContactedSort: -1,
+                updatedAt: -1,
                 createdAt: -1,
               },
       },
