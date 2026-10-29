@@ -48,6 +48,7 @@ interface NotificationFollowUp {
   name: string;
   phone: string;
   stage: string;
+  tag?: string;
   temperature: 'HOT' | 'WARM' | 'COLD';
   timeLabel: string;
   isToday: boolean;
@@ -255,6 +256,7 @@ export const FollowUpNotificationsModal: React.FC<FollowUpNotificationsModalProp
         name: l.name,
         phone: l.phone,
         stage: l.stage || 'Follow Up',
+        tag: l.tag || undefined,
         temperature: temp,
         timeLabel,
         isToday,
@@ -652,7 +654,7 @@ export const FollowUpNotificationsModal: React.FC<FollowUpNotificationsModalProp
                                 },
                               ]}
                             >
-                              {item.temperature}
+                              {item.tag || item.temperature}
                             </Text>
                           </View>
                         </View>
