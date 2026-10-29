@@ -1,8 +1,8 @@
 import { Schema, model, Document, Types } from 'mongoose';
 
-export type DistributionMode = 'EQUAL' | 'CONDITIONAL';
+export type DistributionMode = 'EQUAL' | 'CONDITIONAL' | 'AI' | 'PULL';
 export type CampaignPriority = 'HIGH' | 'MEDIUM' | 'LOW';
-export type DuplicateMode = 'SKIP' | 'MERGE' | 'CREATE_NEW';
+export type DuplicateMode = 'SKIP' | 'MERGE' | 'CREATE_NEW' | 'MERGE_REOPEN';
 
 export type QuestionType =
   | 'TEXT'
@@ -141,7 +141,7 @@ const campaignSchema = new Schema<ICampaignDoc>(
     },
     distributionMode: {
       type: String,
-      enum: ['EQUAL', 'CONDITIONAL'],
+      enum: ['EQUAL', 'CONDITIONAL', 'AI', 'PULL'],
       default: 'EQUAL',
     },
     conditionalRules: {
@@ -160,7 +160,7 @@ const campaignSchema = new Schema<ICampaignDoc>(
     },
     duplicateMode: {
       type: String,
-      enum: ['SKIP', 'MERGE', 'CREATE_NEW'],
+      enum: ['SKIP', 'MERGE', 'CREATE_NEW', 'MERGE_REOPEN'],
       default: 'SKIP',
     },
     engagementForm: {

@@ -3,7 +3,7 @@ import { Campaign } from '../models/campaign.model';
 import { Pipeline } from '../models/pipeline.model';
 import { Lead, ILeadDoc } from '../models/lead.model';
 import { User, IUserDoc } from '../models/user.model';
-import { LeadAssignmentService } from './lead-assignment.service';
+import { LeadAssignmentService, AssignmentContext } from './lead-assignment.service';
 import { normalizePhone } from '../utils/phone.util';
 import { AppError } from '../utils/AppError';
 
@@ -92,6 +92,17 @@ export class LeadIngestService {
 
     const leadBranch = campaign.branch || targetUser?.branch || null;
 
+    // Pre-cache open lead counts once across candidate agents to eliminate N+1 queries
+    const assignmentContext = new AssignmentContext();
+    const candidateAgentIds: Types.ObjectId[] = [];
+    if (campaign.agentIds) candidateAgentIds.push(...campaign.agentIds);
+    if (campaign.conditionalRules) {
+      for (const r of campaign.conditionalRules) {
+        candidateAgentIds.push(...r.agentIds);
+      }
+    }
+    await assignmentContext.init(campaign._id, candidateAgentIds);
+
     // Chunk size: 250 rows per batch
     const CHUNK_SIZE = 250;
     for (let i = 0; i < rows.length; i += CHUNK_SIZE) {
@@ -169,7 +180,7 @@ export class LeadIngestService {
             continue;
           }
 
-          if (campaign.duplicateMode === 'MERGE') {
+          if (campaign.duplicateMode === 'MERGE' || campaign.duplicateMode === 'MERGE_REOPEN') {
             for (const [k, v] of item.customProperties.entries()) {
               if (v) existingLead.customProperties.set(k, v);
             }
@@ -178,17 +189,24 @@ export class LeadIngestService {
             }
 
             if (existingLead.status === 'CLOSED') {
-              const currentStageLower = (existingLead.stage || '').toLowerCase();
-              const isSuppressed =
-                currentStageLower === 'not interested' ||
-                currentStageLower === 'lost' ||
-                currentStageLower === 'closed' ||
-                (existingLead.tag && existingLead.tag.toUpperCase() === 'DND');
-
-              if (!isSuppressed) {
+              if (campaign.duplicateMode === 'MERGE_REOPEN') {
                 existingLead.status = 'OPEN';
                 existingLead.stage = initialStage.name;
                 existingLead.tag = null;
+                existingLead.nextFollowUpAt = null;
+              } else {
+                const currentStageLower = (existingLead.stage || '').toLowerCase();
+                const isSuppressed =
+                  currentStageLower === 'not interested' ||
+                  currentStageLower === 'lost' ||
+                  currentStageLower === 'closed' ||
+                  (existingLead.tag && existingLead.tag.toUpperCase() === 'DND');
+
+                if (!isSuppressed) {
+                  existingLead.status = 'OPEN';
+                  existingLead.stage = initialStage.name;
+                  existingLead.tag = null;
+                }
               }
             }
 
@@ -208,9 +226,9 @@ export class LeadIngestService {
             agentByEmail.get(ident.toLowerCase()) ||
             agentByName.get(ident.toLowerCase()) ||
             agentById.get(ident) ||
-            (await LeadAssignmentService.assignLead(campaign, item.customProperties));
+            (await LeadAssignmentService.assignLead(campaign, item.customProperties, assignmentContext));
         } else {
-          assignedTo = await LeadAssignmentService.assignLead(campaign, item.customProperties);
+          assignedTo = await LeadAssignmentService.assignLead(campaign, item.customProperties, assignmentContext);
         }
 
         leadsToInsert.push({

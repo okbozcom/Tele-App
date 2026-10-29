@@ -43,7 +43,7 @@ export const createCampaignSchema = z.object({
       agentIds: z
         .array(z.string().regex(objectIdRegex, 'Invalid agent ID format'))
         .default([]),
-      distributionMode: z.enum(['EQUAL', 'CONDITIONAL']).default('EQUAL'),
+      distributionMode: z.enum(['EQUAL', 'CONDITIONAL', 'AI', 'PULL']).default('EQUAL'),
       conditionalRules: z.array(conditionalRuleInputSchema).default([]),
       fallbackAgentId: z
         .string()
@@ -51,7 +51,7 @@ export const createCampaignSchema = z.object({
         .optional()
         .nullable(),
       priority: z.enum(['HIGH', 'MEDIUM', 'LOW']).default('MEDIUM'),
-      duplicateMode: z.enum(['SKIP', 'MERGE', 'CREATE_NEW']).default('SKIP'),
+      duplicateMode: z.enum(['SKIP', 'MERGE', 'CREATE_NEW', 'MERGE_REOPEN']).default('SKIP'),
       engagementForm: z.array(engagementQuestionInputSchema).default([]),
       isActive: z.boolean().default(true),
     })
@@ -86,7 +86,7 @@ export const updateCampaignSchema = z.object({
       managerId: z.string().regex(objectIdRegex, 'Invalid manager ID format').optional(),
       branch: z.string().trim().optional().nullable(),
       agentIds: z.array(z.string().regex(objectIdRegex, 'Invalid agent ID format')).optional(),
-      distributionMode: z.enum(['EQUAL', 'CONDITIONAL']).optional(),
+      distributionMode: z.enum(['EQUAL', 'CONDITIONAL', 'AI', 'PULL']).optional(),
       conditionalRules: z.array(conditionalRuleInputSchema).optional(),
       fallbackAgentId: z
         .string()
@@ -94,7 +94,7 @@ export const updateCampaignSchema = z.object({
         .optional()
         .nullable(),
       priority: z.enum(['HIGH', 'MEDIUM', 'LOW']).optional(),
-      duplicateMode: z.enum(['SKIP', 'MERGE', 'CREATE_NEW']).optional(),
+      duplicateMode: z.enum(['SKIP', 'MERGE', 'CREATE_NEW', 'MERGE_REOPEN']).optional(),
       engagementForm: z.array(engagementQuestionInputSchema).optional(),
       isActive: z.boolean().optional(),
     })
