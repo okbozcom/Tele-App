@@ -60,6 +60,29 @@ export const fetchMyLeads = async (params: MyLeadsParams): Promise<MyLeadsRespon
   return response.data;
 };
 
+export interface MyLeadsCounts {
+  all: number;
+  new: number;
+  interested: number;
+  followup: number;
+  notConnected: number;
+  notInterested: number;
+}
+
+export const fetchMyLeadsCounts = async (params?: {
+  campaignId?: string;
+  userId?: string;
+}): Promise<MyLeadsCounts> => {
+  const queryParams: Record<string, string> = {};
+  if (params?.campaignId) queryParams.campaignId = params.campaignId;
+  if (params?.userId) queryParams.userId = params.userId;
+
+  const response = await apiClient.get<{ counts: MyLeadsCounts }>('/api/leads/my/counts', {
+    params: queryParams,
+  });
+  return response.data.counts;
+};
+
 /**
  * Fetches call & activity history for a specific lead.
  */

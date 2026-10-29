@@ -832,6 +832,7 @@ export const LeadDetailScreen: React.FC = () => {
 
       queryClient.invalidateQueries({ queryKey: ['myLeads'] });
       queryClient.invalidateQueries({ queryKey: ['myLeadsList'] });
+      queryClient.invalidateQueries({ queryKey: ['myLeadsCounts'] });
       queryClient.invalidateQueries({ queryKey: ['homeDashboard'] });
       queryClient.invalidateQueries({ queryKey: ['homeMyLeadsQueue'] });
       queryClient.invalidateQueries({ queryKey: ['leadHistory', currentLead._id] });

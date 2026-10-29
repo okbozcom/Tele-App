@@ -201,6 +201,24 @@ export class LeadController {
     }
   }
 
+  public static async getMyLeadsCounts(
+    req: Request,
+    res: Response,
+    next: NextFunction,
+  ): Promise<void> {
+    try {
+      if (!req.user) {
+        throw new AppError('Authentication required', 401);
+      }
+
+      const query = req.query as unknown as MyLeadsQuery;
+      const counts = await LeadService.getMyLeadsCounts(req.user, query);
+      res.status(200).json({ counts });
+    } catch (error) {
+      next(error);
+    }
+  }
+
   public static async reassignLead(
     req: Request,
     res: Response,

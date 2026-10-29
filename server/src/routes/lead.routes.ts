@@ -71,6 +71,7 @@ leadsRouter.post('/:id/tag', LeadController.tagLeadToManager);
 leadsRouter.get('/tagged', LeadController.getTaggedLeads);
 leadsRouter.post('/tagged/:id/dismiss', LeadController.dismissTaggedLead);
 
+leadsRouter.get('/my/counts', validate(myLeadsQuerySchema), LeadController.getMyLeadsCounts);
 leadsRouter.get('/my', validate(myLeadsQuerySchema), LeadController.getMyLeads);
 leadsRouter.get('/export', validate(myLeadsQuerySchema), LeadController.exportMyLeadsCsv);
 leadsRouter.get('/activities/my', ActivityController.getUserActivities);

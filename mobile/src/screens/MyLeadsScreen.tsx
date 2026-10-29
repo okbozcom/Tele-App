@@ -40,7 +40,7 @@ import {
   RotateCcw,
 } from 'lucide-react-native';
 
-import { fetchMyLeads, fetchCampaigns, createWalkInLead, MyLeadsResponse } from '../api/leadApi';
+import { fetchMyLeads, fetchMyLeadsCounts, fetchCampaigns, createWalkInLead, MyLeadsResponse } from '../api/leadApi';
 import { storage } from '../utils/storage';
 import { Lead, RootStackParamList } from '../types';
 import { colors } from '../theme';
@@ -328,10 +328,22 @@ const MyLeadsScreenContent: React.FC = () => {
     staleTime: 1000 * 30, // 30 seconds TTL so lead updates reflect promptly
   });
 
+  const { data: serverCounts, refetch: refetchCounts } = useQuery({
+    queryKey: ['myLeadsCounts', user?._id, selectedCampaignId],
+    queryFn: () =>
+      fetchMyLeadsCounts({
+        campaignId: selectedCampaignId || undefined,
+        userId: isManagerOrAdmin && assignmentScope === 'ME' ? String(user?._id) : undefined,
+      }),
+    refetchInterval: 30000,
+    staleTime: 1000 * 15,
+  });
+
   useFocusEffect(
     useCallback(() => {
       refetch();
-    }, [refetch]),
+      refetchCounts();
+    }, [refetch, refetchCounts]),
   );
 
   useEffect(() => {
@@ -491,6 +503,9 @@ const MyLeadsScreenContent: React.FC = () => {
 
   // Compute status pill counts based on active campaign selection
   const counts = useMemo(() => {
+    if (serverCounts && selectedCampaign === 'All campaigns' && assignmentScope === 'ALL') {
+      return serverCounts;
+    }
     const selCampLower = (selectedCampaign || 'All campaigns').toLowerCase();
     const myId = user?._id ? String(user._id) : '';
     const scopedLeads = combinedLeads.filter((l) => {
@@ -511,7 +526,7 @@ const MyLeadsScreenContent: React.FC = () => {
     const notConn = scopedLeads.filter((l) => l.status === 'Not connected').length;
     const notInterested = scopedLeads.filter((l) => l.status === 'Not Interested').length;
     return { all, new: n, interested, followup, notConnected: notConn, notInterested };
-  }, [combinedLeads, selectedCampaign, selectedCampaignId, isManagerOrAdmin, assignmentScope, user?._id]);
+  }, [serverCounts, combinedLeads, selectedCampaign, selectedCampaignId, isManagerOrAdmin, assignmentScope, user?._id]);
 
   // Filtered Leads
   const filteredLeads = useMemo(() => {
@@ -1239,6 +1254,7 @@ const MyLeadsScreenContent: React.FC = () => {
               refreshing={isLeadsRefetching}
               onRefresh={() => {
                 refetch();
+                refetchCounts();
                 refetchCampaigns();
               }}
               colors={[T.color.primary]}
@@ -1256,6 +1272,7 @@ const MyLeadsScreenContent: React.FC = () => {
               refreshing={isLeadsRefetching}
               onRefresh={() => {
                 refetch();
+                refetchCounts();
                 refetchCampaigns();
               }}
               colors={[T.color.primary]}

@@ -36,7 +36,7 @@ export const listCampaignLeadsQuerySchema = z.object({
 
 export const myLeadsQuerySchema = z.object({
   query: z.object({
-    type: z.enum(['NEW', 'FOLLOW_UP', 'NOT_CONNECTED', 'ALL']).default('ALL'),
+    type: z.enum(['NEW', 'FOLLOW_UP', 'NOT_CONNECTED', 'INTERESTED', 'NOT_INTERESTED', 'ALL']).default('ALL'),
     campaignId: z.string().regex(objectIdRegex, 'Invalid campaign ID format').optional(),
     userId: z.string().regex(objectIdRegex, 'Invalid user ID format').optional(),
     search: z.string().optional(),

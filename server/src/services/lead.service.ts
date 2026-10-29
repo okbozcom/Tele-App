@@ -26,6 +26,15 @@ export interface PaginatedLeads<T> {
   totalPages: number;
 }
 
+export interface MyLeadsCounts {
+  all: number;
+  new: number;
+  interested: number;
+  followup: number;
+  notConnected: number;
+  notInterested: number;
+}
+
 export class LeadService {
   public static async listCampaignLeads(
     requester: IUserDoc,
@@ -198,12 +207,24 @@ export class LeadService {
     if (query.type === 'NEW') {
       matchStage.status = 'OPEN';
       matchStage.attemptCount = 0;
+      matchStage.lastContactedAt = null;
     } else if (query.type === 'FOLLOW_UP') {
       matchStage.status = 'OPEN';
       matchStage.nextFollowUpAt = { $ne: null };
     } else if (query.type === 'NOT_CONNECTED') {
       matchStage.status = 'OPEN';
-      matchStage.attemptCount = { $gt: 0 };
+      matchStage.stage = {
+        $regex: /not connected|did not pick|busy|disconnected|switch|coverage|ringing|unreachable|call cut|not completed|invalid|not in use/i,
+      };
+    } else if (query.type === 'INTERESTED') {
+      matchStage.status = 'OPEN';
+      matchStage.stage = { $regex: /interested/i };
+    } else if (query.type === 'NOT_INTERESTED') {
+      delete matchStage.stage;
+      matchStage.$or = [
+        { status: 'CLOSED' },
+        { stage: { $regex: /not interested|closed|lost|rejected/i } },
+      ];
     }
 
     if (query.search && query.search.trim()) {
@@ -387,6 +408,149 @@ export class LeadService {
       page,
       limit,
       totalPages: Math.ceil(total / limit) || 1,
+    };
+  }
+
+  public static async getMyLeadsCounts(
+    requester: IUserDoc,
+    query: MyLeadsQuery,
+  ): Promise<MyLeadsCounts> {
+    if (mongoose.connection.readyState === 0 && !(Lead.aggregate as any)?.mock) {
+      return {
+        all: 0,
+        new: 0,
+        interested: 0,
+        followup: 0,
+        notConnected: 0,
+        notInterested: 0,
+      };
+    }
+
+    const baseMatch: Record<string, unknown> = {};
+
+    if (requester.role === 'AGENT') {
+      baseMatch.assignedTo = requester._id;
+    } else if (requester.role === 'MANAGER') {
+      const managedCampaigns = await Campaign.find({
+        $or: [
+          { managerId: requester._id },
+          ...(requester.branch ? [{ branch: requester.branch }] : []),
+        ],
+      }, '_id');
+      const managedIds = managedCampaigns.map((c) => c._id);
+      if (query.campaignId) {
+        if (!Types.ObjectId.isValid(query.campaignId)) {
+          throw new AppError('Invalid campaign ID format', 400);
+        }
+        baseMatch.campaignId = new Types.ObjectId(query.campaignId);
+      } else {
+        baseMatch.campaignId = { $in: managedIds };
+      }
+      if (query.userId) {
+        if (!Types.ObjectId.isValid(query.userId)) {
+          throw new AppError('Invalid user ID format', 400);
+        }
+        baseMatch.assignedTo = new Types.ObjectId(query.userId);
+      }
+    } else {
+      // ADMIN
+      if (query.campaignId) {
+        if (!Types.ObjectId.isValid(query.campaignId)) {
+          throw new AppError('Invalid campaign ID format', 400);
+        }
+        baseMatch.campaignId = new Types.ObjectId(query.campaignId);
+      }
+      if (query.userId) {
+        if (!Types.ObjectId.isValid(query.userId)) {
+          throw new AppError('Invalid user ID format', 400);
+        }
+        baseMatch.assignedTo = new Types.ObjectId(query.userId);
+      }
+    }
+
+    const [result] = await Lead.aggregate<{
+      all: Array<{ count: number }>;
+      new: Array<{ count: number }>;
+      followup: Array<{ count: number }>;
+      notConnected: Array<{ count: number }>;
+      interested: Array<{ count: number }>;
+      notInterested: Array<{ count: number }>;
+    }>([
+      { $match: baseMatch },
+      {
+        $facet: {
+          all: [
+            {
+              $match: {
+                status: 'OPEN',
+                stage: { $not: /not interested|closed|lost|rejected/i },
+              },
+            },
+            { $count: 'count' },
+          ],
+          new: [
+            {
+              $match: {
+                status: 'OPEN',
+                $or: [{ attemptCount: 0 }, { attemptCount: { $exists: false } }],
+                lastContactedAt: null,
+                stage: { $not: /not interested|closed|lost|rejected/i },
+              },
+            },
+            { $count: 'count' },
+          ],
+          followup: [
+            {
+              $match: {
+                status: 'OPEN',
+                nextFollowUpAt: { $ne: null },
+                stage: { $not: /not interested|closed|lost|rejected/i },
+              },
+            },
+            { $count: 'count' },
+          ],
+          notConnected: [
+            {
+              $match: {
+                status: 'OPEN',
+                stage: {
+                  $regex: /not connected|did not pick|busy|disconnected|switch|coverage|ringing|unreachable|call cut|not completed|invalid|not in use/i,
+                },
+              },
+            },
+            { $count: 'count' },
+          ],
+          interested: [
+            {
+              $match: {
+                status: 'OPEN',
+                stage: { $regex: /interested/i },
+              },
+            },
+            { $count: 'count' },
+          ],
+          notInterested: [
+            {
+              $match: {
+                $or: [
+                  { status: 'CLOSED' },
+                  { stage: { $regex: /not interested|closed|lost|rejected/i } },
+                ],
+              },
+            },
+            { $count: 'count' },
+          ],
+        },
+      },
+    ]);
+
+    return {
+      all: result?.all?.[0]?.count || 0,
+      new: result?.new?.[0]?.count || 0,
+      followup: result?.followup?.[0]?.count || 0,
+      notConnected: result?.notConnected?.[0]?.count || 0,
+      interested: result?.interested?.[0]?.count || 0,
+      notInterested: result?.notInterested?.[0]?.count || 0,
     };
   }
 

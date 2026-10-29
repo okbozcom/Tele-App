@@ -332,5 +332,36 @@ describe('Production RBAC & Service Authorization Integration Tests', () => {
       assert.ok(matchStage.$or, '$or search conditions must be present in matchStage');
       assert.ok(matchStage.$or.some((c) => c.phone instanceof RegExp));
     });
+
+    it('returns atomic tab counts via getMyLeadsCounts using $facet', async () => {
+      const agentId = new Types.ObjectId();
+      const requester = { _id: agentId, role: 'AGENT' };
+
+      let capturedPipeline = null;
+      mock.method(Lead, 'aggregate', async (pipeline) => {
+        capturedPipeline = pipeline;
+        return [
+          {
+            all: [{ count: 100 }],
+            new: [{ count: 80 }],
+            followup: [{ count: 10 }],
+            notConnected: [{ count: 5 }],
+            interested: [{ count: 3 }],
+            notInterested: [{ count: 2 }],
+          },
+        ];
+      });
+
+      const counts = await LeadService.getMyLeadsCounts(requester, { type: 'ALL' });
+
+      assert.equal(counts.all, 100);
+      assert.equal(counts.new, 80);
+      assert.equal(counts.followup, 10);
+      assert.equal(counts.notConnected, 5);
+      assert.equal(counts.interested, 3);
+      assert.equal(counts.notInterested, 2);
+      assert.ok(capturedPipeline);
+      assert.ok(capturedPipeline[1].$facet);
+    });
   });
 });
