@@ -141,6 +141,13 @@ export interface Setting {
   followUpMandatoryForNotConnected: boolean;
   autoLeadDistribution?: boolean;
   reassignAfterHours?: number;
+  breakNotificationThresholdMinutes?: number;
+  enableAutoCallDialing?: boolean;
+  autoCallDialingDelaySeconds?: number;
+  maskContactNumber?: boolean;
+  displayStartCallingButton?: boolean;
+  allowCallRecordingPlayback?: boolean;
+  preferredSimSlot?: number | null;
   createdAt?: string;
   updatedAt?: string;
 }

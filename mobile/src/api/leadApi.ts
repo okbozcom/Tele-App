@@ -469,12 +469,7 @@ export const fetchAdminSettings = async (): Promise<{ settings: Setting }> => {
 /**
  * Updates organization settings (ADMIN & MANAGER).
  */
-export const updateAdminSettings = async (data: {
-  allowDisposeWithoutFollowUp?: boolean;
-  followUpMandatoryForNotConnected?: boolean;
-  autoLeadDistribution?: boolean;
-  reassignAfterHours?: number;
-}): Promise<{ settings: Setting }> => {
+export const updateAdminSettings = async (data: Partial<Setting>): Promise<{ settings: Setting }> => {
   const response = await apiClient.patch<{ settings: Setting }>('/api/settings', data);
   return response.data;
 };

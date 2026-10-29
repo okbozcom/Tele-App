@@ -32,6 +32,34 @@ export class SettingService {
       setting.reassignAfterHours = updates.reassignAfterHours;
     }
 
+    if (updates.breakNotificationThresholdMinutes !== undefined) {
+      setting.breakNotificationThresholdMinutes = updates.breakNotificationThresholdMinutes;
+    }
+
+    if (updates.enableAutoCallDialing !== undefined) {
+      setting.enableAutoCallDialing = updates.enableAutoCallDialing;
+    }
+
+    if (updates.autoCallDialingDelaySeconds !== undefined) {
+      setting.autoCallDialingDelaySeconds = updates.autoCallDialingDelaySeconds;
+    }
+
+    if (updates.maskContactNumber !== undefined) {
+      setting.maskContactNumber = updates.maskContactNumber;
+    }
+
+    if (updates.displayStartCallingButton !== undefined) {
+      setting.displayStartCallingButton = updates.displayStartCallingButton;
+    }
+
+    if (updates.allowCallRecordingPlayback !== undefined) {
+      setting.allowCallRecordingPlayback = updates.allowCallRecordingPlayback;
+    }
+
+    if (updates.preferredSimSlot !== undefined) {
+      setting.preferredSimSlot = updates.preferredSimSlot;
+    }
+
     await setting.save();
     return setting;
   }

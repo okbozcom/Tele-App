@@ -33,6 +33,7 @@ import {
   MapPin,
   ChevronRight,
   Cpu,
+  PhoneForwarded,
 } from 'lucide-react-native';
 import { useNavigation } from '@react-navigation/native';
 
@@ -50,6 +51,7 @@ import { useTemplateStore, WhatsAppTemplate } from '../store/templateStore';
 import { colors } from '../theme';
 import { CrmShell } from '../components/CrmShell';
 import { storage } from '../utils/storage';
+import { SimPreferenceService } from '../services/sim-preference.service';
 
 export const SettingsScreen: React.FC = () => {
   const navigation = useNavigation<any>();
@@ -72,6 +74,15 @@ export const SettingsScreen: React.FC = () => {
   const [autoLeadDistribution, setAutoLeadDistribution] = useState(true);
   const [callDelaySeconds, setCallDelaySeconds] = useState<number>(3);
   const [dialSoundEnabled, setDialSoundEnabled] = useState<boolean>(true);
+
+  // NeoDove Spec 4.9 Settings State
+  const [enableAutoCallDialing, setEnableAutoCallDialing] = useState<boolean>(false);
+  const [autoCallDialingDelay, setAutoCallDialingDelay] = useState<number>(5);
+  const [maskContactNumber, setMaskContactNumber] = useState<boolean>(false);
+  const [displayStartCallingButton, setDisplayStartCallingButton] = useState<boolean>(true);
+  const [allowCallRecordingPlayback, setAllowCallRecordingPlayback] = useState<boolean>(true);
+  const [preferredSimSlot, setPreferredSimSlotState] = useState<number | null>(null);
+  const [breakThresholdMinutes, setBreakThresholdMinutes] = useState<number>(15);
 
   // Load and persist local agent calling preferences
   useEffect(() => {
@@ -208,8 +219,37 @@ export const SettingsScreen: React.FC = () => {
       if (backendSettings.autoLeadDistribution !== undefined) {
         setAutoLeadDistribution(backendSettings.autoLeadDistribution);
       }
+      if (backendSettings.enableAutoCallDialing !== undefined) {
+        setEnableAutoCallDialing(Boolean(backendSettings.enableAutoCallDialing));
+      }
+      if (backendSettings.autoCallDialingDelaySeconds !== undefined) {
+        setAutoCallDialingDelay(backendSettings.autoCallDialingDelaySeconds);
+      }
+      if (backendSettings.maskContactNumber !== undefined) {
+        setMaskContactNumber(Boolean(backendSettings.maskContactNumber));
+      }
+      if (backendSettings.displayStartCallingButton !== undefined) {
+        setDisplayStartCallingButton(Boolean(backendSettings.displayStartCallingButton));
+      }
+      if (backendSettings.allowCallRecordingPlayback !== undefined) {
+        setAllowCallRecordingPlayback(Boolean(backendSettings.allowCallRecordingPlayback));
+      }
+      if (backendSettings.breakNotificationThresholdMinutes !== undefined) {
+        setBreakThresholdMinutes(backendSettings.breakNotificationThresholdMinutes);
+      }
     }
   }, [backendSettings]);
+
+  useEffect(() => {
+    SimPreferenceService.getPreferredSimSlot().then((slot) => {
+      setPreferredSimSlotState(slot);
+    });
+  }, []);
+
+  const handleSelectSimSlot = async (slot: number | null) => {
+    setPreferredSimSlotState(slot);
+    await SimPreferenceService.setPreferredSimSlot(slot as any);
+  };
 
   // Mutation to persist
   const saveMutation = useMutation({
@@ -218,6 +258,13 @@ export const SettingsScreen: React.FC = () => {
         allowDisposeWithoutFollowUp,
         followUpMandatoryForNotConnected,
         autoLeadDistribution,
+        enableAutoCallDialing,
+        autoCallDialingDelaySeconds: autoCallDialingDelay,
+        maskContactNumber,
+        displayStartCallingButton,
+        allowCallRecordingPlayback,
+        breakNotificationThresholdMinutes: breakThresholdMinutes,
+        preferredSimSlot,
       });
     },
     onSuccess: () => {
@@ -496,6 +543,199 @@ export const SettingsScreen: React.FC = () => {
             <Text style={styles.calloutSubtitle}>
               These preferences are shared by all agents across active branches.
             </Text>
+          </View>
+        </View>
+
+        {/* Section: NeoDove Telecalling & Dialing Preferences */}
+        <View style={[styles.sectionHeaderRow, { marginTop: 28 }]}>
+          <PhoneForwarded size={16} color="#0284C7" />
+          <Text style={styles.sectionHeaderTitle}>NeoDove Telecalling & Dialing Preferences</Text>
+        </View>
+
+        <View style={styles.settingsCard}>
+          {/* Policy: Automatic Call Dialing */}
+          <View style={styles.settingRow}>
+            <View style={styles.settingInfo}>
+              <Text style={styles.settingTitle}>Automatic call dialing</Text>
+              <Text style={styles.settingSubtitle}>
+                Auto-start dialer countdown immediately after finishing lead disposition.
+              </Text>
+            </View>
+            <Switch
+              value={enableAutoCallDialing}
+              onValueChange={setEnableAutoCallDialing}
+              disabled={isAgent}
+              trackColor={{ false: '#E2E8F0', true: '#10B981' }}
+              thumbColor="#FFFFFF"
+            />
+          </View>
+
+          {/* Policy: Auto Dial Delay Pacing */}
+          <View style={styles.settingRow}>
+            <View style={styles.settingInfo}>
+              <Text style={styles.settingTitle}>Auto-dial delay countdown</Text>
+              <Text style={styles.settingSubtitle}>
+                Seconds to pause before auto-dialing the next customer.
+              </Text>
+            </View>
+            <View style={{ flexDirection: 'row', gap: 6 }}>
+              {[3, 5, 10].map((s) => (
+                <TouchableOpacity
+                  key={s}
+                  onPress={() => !isAgent && setAutoCallDialingDelay(s)}
+                  disabled={isAgent}
+                  activeOpacity={0.7}
+                  style={{
+                    paddingHorizontal: 10,
+                    paddingVertical: 5,
+                    borderRadius: 8,
+                    backgroundColor: autoCallDialingDelay === s ? '#10B981' : '#F1F5F9',
+                    borderWidth: 1,
+                    borderColor: autoCallDialingDelay === s ? '#10B981' : '#E2E8F0',
+                  }}
+                >
+                  <Text
+                    style={{
+                      fontSize: 11,
+                      fontWeight: '800',
+                      color: autoCallDialingDelay === s ? '#FFFFFF' : '#64748B',
+                    }}
+                  >
+                    {s}s
+                  </Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+          </View>
+
+          {/* Policy: Preferred SIM Slot */}
+          <View style={styles.settingRow}>
+            <View style={styles.settingInfo}>
+              <Text style={styles.settingTitle}>Preferred SIM card</Text>
+              <Text style={styles.settingSubtitle}>
+                Select device SIM card slot for outgoing customer calls.
+              </Text>
+            </View>
+            <View style={{ flexDirection: 'row', gap: 6 }}>
+              {[
+                { label: 'Ask', value: null },
+                { label: 'SIM 1', value: 0 },
+                { label: 'SIM 2', value: 1 },
+              ].map((sim) => (
+                <TouchableOpacity
+                  key={sim.label}
+                  onPress={() => handleSelectSimSlot(sim.value)}
+                  activeOpacity={0.7}
+                  style={{
+                    paddingHorizontal: 10,
+                    paddingVertical: 5,
+                    borderRadius: 8,
+                    backgroundColor: preferredSimSlot === sim.value ? '#10B981' : '#F1F5F9',
+                    borderWidth: 1,
+                    borderColor: preferredSimSlot === sim.value ? '#10B981' : '#E2E8F0',
+                  }}
+                >
+                  <Text
+                    style={{
+                      fontSize: 11,
+                      fontWeight: '800',
+                      color: preferredSimSlot === sim.value ? '#FFFFFF' : '#64748B',
+                    }}
+                  >
+                    {sim.label}
+                  </Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+          </View>
+
+          {/* Policy: Mask Contact Number */}
+          <View style={styles.settingRow}>
+            <View style={styles.settingInfo}>
+              <Text style={styles.settingTitle}>Mask contact numbers for telecallers</Text>
+              <Text style={styles.settingSubtitle}>
+                Obscure middle phone digits in lead views to preserve customer privacy.
+              </Text>
+            </View>
+            <Switch
+              value={maskContactNumber}
+              onValueChange={setMaskContactNumber}
+              disabled={isAgent}
+              trackColor={{ false: '#E2E8F0', true: '#10B981' }}
+              thumbColor="#FFFFFF"
+            />
+          </View>
+
+          {/* Policy: Display Start Calling Button */}
+          <View style={styles.settingRow}>
+            <View style={styles.settingInfo}>
+              <Text style={styles.settingTitle}>Display Start Calling button</Text>
+              <Text style={styles.settingSubtitle}>
+                Show continuous telecalling desk button on queues and campaign lists.
+              </Text>
+            </View>
+            <Switch
+              value={displayStartCallingButton}
+              onValueChange={setDisplayStartCallingButton}
+              disabled={isAgent}
+              trackColor={{ false: '#E2E8F0', true: '#10B981' }}
+              thumbColor="#FFFFFF"
+            />
+          </View>
+
+          {/* Policy: Allow Call Recording Playback */}
+          <View style={styles.settingRow}>
+            <View style={styles.settingInfo}>
+              <Text style={styles.settingTitle}>Allow call recording playback</Text>
+              <Text style={styles.settingSubtitle}>
+                Allow telecallers to listen to past call recording audio in activity logs.
+              </Text>
+            </View>
+            <Switch
+              value={allowCallRecordingPlayback}
+              onValueChange={setAllowCallRecordingPlayback}
+              disabled={isAgent}
+              trackColor={{ false: '#E2E8F0', true: '#10B981' }}
+              thumbColor="#FFFFFF"
+            />
+          </View>
+
+          {/* Policy: Break Notification Threshold */}
+          <View style={[styles.settingRow, { borderBottomWidth: 0 }]}>
+            <View style={styles.settingInfo}>
+              <Text style={styles.settingTitle}>Break notification threshold</Text>
+              <Text style={styles.settingSubtitle}>
+                Alert if an agent remains paused/on break beyond this limit.
+              </Text>
+            </View>
+            <View style={{ flexDirection: 'row', gap: 6 }}>
+              {[15, 30, 45, 60].map((m) => (
+                <TouchableOpacity
+                  key={m}
+                  onPress={() => !isAgent && setBreakThresholdMinutes(m)}
+                  disabled={isAgent}
+                  activeOpacity={0.7}
+                  style={{
+                    paddingHorizontal: 9,
+                    paddingVertical: 5,
+                    borderRadius: 8,
+                    backgroundColor: breakThresholdMinutes === m ? '#10B981' : '#F1F5F9',
+                    borderWidth: 1,
+                    borderColor: breakThresholdMinutes === m ? '#10B981' : '#E2E8F0',
+                  }}
+                >
+                  <Text
+                    style={{
+                      fontSize: 11,
+                      fontWeight: '800',
+                      color: breakThresholdMinutes === m ? '#FFFFFF' : '#64748B',
+                    }}
+                  >
+                    {m}m
+                  </Text>
+                </TouchableOpacity>
+              ))}
+            </View>
           </View>
         </View>
 

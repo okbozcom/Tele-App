@@ -39,14 +39,21 @@ export const normalizePhoneDigits = (phone: string): string => {
 
 /**
  * Formats a phone number for user-facing display: "+91 98100 00081"
+ * If masked is true, obscures middle digits: "+91 98100 ****1"
  * Guaranteed to NEVER have duplicate "+91 91..."
  */
-export const formatDisplayPhone = (phone: string): string => {
+export const formatDisplayPhone = (phone: string, masked: boolean = false): string => {
   const digits = normalizePhoneDigits(phone);
   if (digits.length === 10) {
+    if (masked) {
+      return `+91 ${digits.slice(0, 5)} ****${digits.slice(-1)}`;
+    }
     return `+91 ${digits.slice(0, 5)} ${digits.slice(5)}`;
   }
   if (!phone) return '';
+  if (masked && phone.length > 5) {
+    return phone.slice(0, 4) + '****' + phone.slice(-2);
+  }
   // Fallback if not 10 digits
   return phone.startsWith('+') ? phone : `+91 ${phone}`;
 };
