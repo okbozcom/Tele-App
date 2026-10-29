@@ -94,5 +94,8 @@ leadsRouter.get('/:id/history', ActivityController.getLeadHistory);
 leadsRouter.post('/next', validate(getNextLeadSchema), LeadController.getNextLead);
 leadsRouter.post('/:id/unlock', LeadController.unlockLead);
 
+// Dial intent token resolution for masked leads (NeoDove Spec 4.9)
+leadsRouter.post('/:id/dial', LeadController.getDialIntent);
+
 // Update lead details (e.g. name, phone, email)
 leadsRouter.patch('/:id', validate(updateLeadSchema), LeadController.updateLead);

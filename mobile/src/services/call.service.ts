@@ -21,7 +21,19 @@ export class DeviceCallService implements ICallService {
       return false;
     }
 
-    const cleanNumber = lead.phone.trim();
+    let cleanNumber = lead.phone.trim();
+    if (cleanNumber.includes('*') && lead._id) {
+      try {
+        // eslint-disable-next-line @typescript-eslint/no-var-requires
+        const { fetchDialTarget } = require('../api/leadApi');
+        const res = await fetchDialTarget(lead._id);
+        if (res && res.dialNumber) {
+          cleanNumber = res.dialNumber.trim();
+        }
+      } catch (e) {
+        console.warn('[CallService] Could not resolve dial target for masked lead:', e);
+      }
+    }
     const telUrl = `tel:${cleanNumber}`;
 
     try {

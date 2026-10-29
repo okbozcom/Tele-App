@@ -70,6 +70,7 @@ import {
   fetchPublicSettings,
   disposeLead,
   updateLeadDetails,
+  fetchDialTarget,
 } from '../api/leadApi';
 import { RootStackParamList, Activity, Lead, CustomerTemperature, NotConnectedReason, NotConnectedReasons, User, Campaign, PipelineStage, DisposeLeadPayload, EngagementQuestion } from '../types';
 import { colors, borderRadius, shadows } from '../theme';
@@ -371,16 +372,34 @@ export const LeadDetailScreen: React.FC = () => {
   const [editPhone, setEditPhone] = useState<string>(lead.phone);
 
   // Quick Communication Action Handlers (WhatsApp, SMS, Email)
-  const handleOpenWhatsApp = () => {
+  const handleOpenWhatsApp = async () => {
+    let targetPhone = currentLead.phone;
+    if (targetPhone.includes('*') && currentLead._id) {
+      try {
+        const res = await fetchDialTarget(currentLead._id);
+        if (res?.dialNumber) targetPhone = res.dialNumber;
+      } catch (err) {
+        console.warn('Failed to resolve dial target for WhatsApp:', err);
+      }
+    }
     const url = getWhatsAppUrl(
-      currentLead.phone,
+      targetPhone,
       `Hello ${currentLead.name || ''}, this is regarding your inquiry with Hi Talk.`,
     );
     Linking.openURL(url).catch(() => toast.error('Could not open WhatsApp'));
   };
 
-  const handleOpenSMS = () => {
-    const clean = currentLead.phone.replace(/[^\d+]/g, '');
+  const handleOpenSMS = async () => {
+    let targetPhone = currentLead.phone;
+    if (targetPhone.includes('*') && currentLead._id) {
+      try {
+        const res = await fetchDialTarget(currentLead._id);
+        if (res?.dialNumber) targetPhone = res.dialNumber;
+      } catch (err) {
+        console.warn('Failed to resolve dial target for SMS:', err);
+      }
+    }
+    const clean = targetPhone.replace(/[^\d+]/g, '');
     Linking.openURL(`sms:${clean}`).catch(() => toast.error('Could not open SMS app'));
   };
 

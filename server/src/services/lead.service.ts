@@ -10,6 +10,8 @@ import {
 } from '../validations/lead.validation';
 import { AppError } from '../utils/AppError';
 import { AuditService } from './audit.service';
+import { SettingService } from './setting.service';
+import { maskPhoneNumber } from '../utils/phoneUtils';
 
 export interface PaginatedLeads<T> {
   leads: T[];
@@ -95,8 +97,20 @@ export class LeadService {
       Lead.countDocuments(filter),
     ]);
 
+    const settings = await SettingService.getSettings();
+    const shouldMask = requester.role === 'AGENT' && !!settings.maskContactNumber;
+
+    const formattedLeads = leads.map((l) => {
+      const obj = l.toObject ? l.toObject() : { ...l };
+      if (shouldMask) {
+        obj.phone = maskPhoneNumber(obj.phone);
+        obj.isMasked = true;
+      }
+      return obj;
+    });
+
     return {
-      leads,
+      leads: formattedLeads as unknown as ILeadDoc[],
       total,
       page,
       limit,
@@ -330,11 +344,21 @@ export class LeadService {
 
     const [facetResult] = await Lead.aggregate<{
       metadata: Array<{ total: number }>;
-      data: unknown[];
+      data: any[];
     }>(pipeline);
 
     const total = facetResult.metadata[0]?.total || 0;
-    const leads = facetResult.data || [];
+    let leads = facetResult.data || [];
+
+    const settings = await SettingService.getSettings();
+    const shouldMask = requester.role === 'AGENT' && !!settings.maskContactNumber;
+    if (shouldMask) {
+      leads = leads.map((l: any) => ({
+        ...l,
+        phone: maskPhoneNumber(l.phone),
+        isMasked: true,
+      }));
+    }
 
     return {
       leads,
@@ -555,6 +579,9 @@ export class LeadService {
       filter.campaignId = new Types.ObjectId(query.campaignId);
     }
 
+    const settings = await SettingService.getSettings();
+    const shouldMask = requester.role === 'AGENT' && !!settings.maskContactNumber;
+
     const leads = await Lead.find(filter)
       .populate('campaignId', 'name')
       .populate('assignedTo', 'name email')
@@ -573,7 +600,7 @@ export class LeadService {
       lines.push(
         [
           escape(l.name),
-          escape(l.phone),
+          escape(shouldMask ? maskPhoneNumber(l.phone) : l.phone),
           escape(l.email || ''),
           escape(camp),
           escape(l.stage),
@@ -643,6 +670,15 @@ export class LeadService {
       resourceId: lead._id.toString(),
       details: { updates },
     });
+
+    const settings = await SettingService.getSettings();
+    const shouldMask = requester.role === 'AGENT' && !!settings.maskContactNumber;
+    if (shouldMask) {
+      const obj = lead.toObject ? lead.toObject() : { ...lead };
+      obj.phone = maskPhoneNumber(obj.phone);
+      obj.isMasked = true;
+      return obj as unknown as ILeadDoc;
+    }
 
     return lead;
   }
@@ -908,9 +944,73 @@ export class LeadService {
     // 7. Calculate remaining count
     const remainingCount = await Lead.countDocuments(filter);
 
+    const settings = await SettingService.getSettings();
+    const shouldMask = requester.role === 'AGENT' && !!settings.maskContactNumber;
+
+    let finalLead = chosenLead;
+    if (chosenLead && shouldMask) {
+      const obj = chosenLead.toObject ? chosenLead.toObject() : { ...chosenLead };
+      obj.phone = maskPhoneNumber(obj.phone);
+      obj.isMasked = true;
+      finalLead = obj as unknown as ILeadDoc;
+    }
+
     return {
-      lead: chosenLead,
+      lead: finalLead,
       remainingCount,
+    };
+  }
+
+  /**
+   * Retrieves unmasked phone number for authorized dial intent (NeoDove Spec 4.9 Masking + Calling).
+   * Verified by role and assignment / branch scope with audit logging.
+   */
+  public static async getDialIntent(
+    requester: IUserDoc,
+    leadId: string,
+  ): Promise<{ dialNumber: string; leadId: string }> {
+    if (!Types.ObjectId.isValid(leadId)) {
+      throw new AppError('Invalid lead ID format', 400);
+    }
+
+    const lead = await Lead.findById(leadId);
+    if (!lead) {
+      throw new AppError('Lead not found', 404);
+    }
+
+    if (requester.role === 'AGENT') {
+      if (!lead.assignedTo || lead.assignedTo.toString() !== requester._id.toString()) {
+        throw new AppError('Forbidden: You can only dial leads assigned to you', 403);
+      }
+    } else if (requester.role === 'MANAGER') {
+      const campaign = await Campaign.findById(lead.campaignId);
+      if (
+        campaign &&
+        campaign.managerId.toString() !== requester._id.toString() &&
+        requester.branch &&
+        campaign.branch !== requester.branch
+      ) {
+        throw new AppError('Forbidden: You can only dial leads within your managed campaigns', 403);
+      }
+    } else if (requester.role === 'ADMIN') {
+      if (requester.branch && lead.branch && requester.branch !== lead.branch) {
+        throw new AppError('Forbidden: You can only dial leads within your branch', 403);
+      }
+    }
+
+    await AuditService.log({
+      userId: requester._id,
+      userEmail: requester.email,
+      userRole: requester.role,
+      action: 'LEAD_DIAL_INTENT',
+      resourceType: 'LEAD',
+      resourceId: lead._id.toString(),
+      details: { leadName: lead.name },
+    });
+
+    return {
+      dialNumber: lead.phone,
+      leadId: lead._id.toString(),
     };
   }
 

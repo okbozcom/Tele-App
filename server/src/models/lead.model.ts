@@ -20,6 +20,7 @@ export interface ILead {
   attemptCount: number;
   lockedAt?: Date | null;
   lockedBy?: Types.ObjectId | null;
+  isMasked?: boolean;
   createdAt: Date;
   updatedAt: Date;
 }

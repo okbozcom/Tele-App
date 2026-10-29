@@ -49,6 +49,7 @@ export interface Lead {
   attemptCount: number;
   dealAmount?: number | null;
   currency?: string | null;
+  isMasked?: boolean;
   createdAt: string;
   updatedAt: string;
 }

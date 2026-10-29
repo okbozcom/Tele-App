@@ -5,6 +5,7 @@ import { useAuthStore } from '../store/authStore';
 import { Lead, DetectedCallResult } from '../types';
 import { navigationRef } from '../navigation/RootNavigator';
 import { storage } from '../utils/storage';
+import { fetchDialTarget } from '../api/leadApi';
 
 export interface StartCallOptions {
   callerSource?: 'DIALPAD' | 'QUEUE' | 'LEAD_DETAIL' | 'CALL_HISTORY' | 'MY_LEADS' | 'FOLLOW_UPS';
@@ -132,7 +133,19 @@ class CallSessionManager {
       .catch(() => {});
 
     try {
-      const ok = await callService.startCall(lead);
+      let dialableLead = lead;
+      if (lead.phone.includes('*') && lead._id) {
+        try {
+          const dialRes = await fetchDialTarget(lead._id);
+          if (dialRes && dialRes.dialNumber) {
+            dialableLead = { ...lead, phone: dialRes.dialNumber };
+          }
+        } catch (dialErr) {
+          console.warn('[CallSession] Failed to resolve dial target for masked lead:', dialErr);
+        }
+      }
+
+      const ok = await callService.startCall(dialableLead);
       if (!ok) {
         this.activeSession = null;
         this.isCalling = false;

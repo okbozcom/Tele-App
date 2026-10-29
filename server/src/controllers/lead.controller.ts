@@ -421,5 +421,21 @@ export class LeadController {
       next(err);
     }
   }
+
+  public static async getDialIntent(
+    req: Request,
+    res: Response,
+    next: NextFunction,
+  ): Promise<void> {
+    try {
+      if (!req.user) {
+        throw new AppError('Authentication required', 401);
+      }
+      const result = await LeadService.getDialIntent(req.user, req.params.id);
+      res.status(200).json({ status: 'success', ...result });
+    } catch (err) {
+      next(err);
+    }
+  }
 }
 

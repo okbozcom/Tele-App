@@ -108,7 +108,21 @@ export class AndroidCallService extends DeviceCallService implements ICallServic
       return false;
     }
 
-    const cleanNumber = lead.phone.replace(/[^\d+*#]/g, '').trim();
+    let rawPhone = lead.phone;
+    if (rawPhone.includes('*') && lead._id) {
+      try {
+        // eslint-disable-next-line @typescript-eslint/no-var-requires
+        const { fetchDialTarget } = require('../api/leadApi');
+        const res = await fetchDialTarget(lead._id);
+        if (res && res.dialNumber) {
+          rawPhone = res.dialNumber;
+        }
+      } catch (e) {
+        console.warn('[AndroidCallService] Could not resolve dial target for masked lead:', e);
+      }
+    }
+
+    const cleanNumber = rawPhone.replace(/[^\d+*#]/g, '').trim();
     if (!cleanNumber) return false;
 
     // Check & request CALL_PHONE permission if needed

@@ -80,6 +80,18 @@ export const updateLeadDetails = async (
 };
 
 /**
+ * Resolves unmasked dial number for an authorized dial/messaging intent (Spec 4.9).
+ */
+export const fetchDialTarget = async (
+  leadId: string,
+): Promise<{ dialNumber: string; leadId: string }> => {
+  const response = await apiClient.post<{ status: string; dialNumber: string; leadId: string }>(
+    `/api/leads/${leadId}/dial`,
+  );
+  return response.data;
+};
+
+/**
  * Disposes a lead with outcome, stage, tag, follow-up, call duration, and remarks.
  */
 export const disposeLead = async (

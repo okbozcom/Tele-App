@@ -11,6 +11,7 @@ import { AuditService } from './audit.service';
 import { DisposeLeadInput } from '../validations/activity.validation';
 import { DailyStatService } from './daily-stat.service';
 import { resolveCallDate } from '../utils/dateUtils';
+import { maskPhoneNumber } from '../utils/phoneUtils';
 import { AppError } from '../utils/AppError';
 
 export interface DisposeResult {
@@ -36,6 +37,22 @@ export class ActivityService {
       lead = await Lead.findOne({ phone: { $regex: cleanPhone } });
     }
 
+    const formatDisposeResult = async (act: IActivityDoc, ld: ILeadDoc): Promise<DisposeResult> => {
+      const settings = await SettingService.getSettings();
+      if (settings.maskContactNumber && requester.role === 'AGENT') {
+        const maskedLead = ld.toObject ? ld.toObject() : { ...ld };
+        maskedLead.phone = maskPhoneNumber(maskedLead.phone);
+        maskedLead.isMasked = true;
+        const maskedActivity = act.toObject ? act.toObject() : { ...act };
+        maskedActivity.phone = maskPhoneNumber(maskedActivity.phone);
+        return {
+          activity: maskedActivity as unknown as IActivityDoc,
+          lead: maskedLead as unknown as ILeadDoc,
+        };
+      }
+      return { activity: act, lead: ld };
+    };
+
     // Check clientEventId and idempotencyKey: If already processed, return existing activity and lead
     if (input.clientEventId) {
       const existingByClientEventId = await Activity.findOne({
@@ -44,10 +61,7 @@ export class ActivityService {
       });
       if (existingByClientEventId) {
         const resolvedLead = lead || (await Lead.findById(existingByClientEventId.leadId));
-        return {
-          activity: existingByClientEventId,
-          lead: resolvedLead!,
-        };
+        return formatDisposeResult(existingByClientEventId, resolvedLead!);
       }
     }
 
@@ -55,10 +69,7 @@ export class ActivityService {
       const existingActivity = await Activity.findOne({ idempotencyKey: input.idempotencyKey });
       if (existingActivity) {
         const resolvedLead = lead || (await Lead.findById(existingActivity.leadId));
-        return {
-          activity: existingActivity,
-          lead: resolvedLead!,
-        };
+        return formatDisposeResult(existingActivity, resolvedLead!);
       }
     }
 
@@ -348,7 +359,7 @@ export class ActivityService {
       console.error('[ActivityService] Error updating DailyStat:', statErr);
     }
 
-    return { activity, lead };
+    return formatDisposeResult(activity, lead);
   }
 
   public static async getLeadHistory(
@@ -402,6 +413,15 @@ export class ActivityService {
       if (!isDuplicate) {
         deduplicated.push(act);
       }
+    }
+
+    const settings = await SettingService.getSettings();
+    if (settings.maskContactNumber && _requester.role === 'AGENT') {
+      return deduplicated.map((act) => {
+        const obj = act.toObject ? act.toObject() : { ...act };
+        obj.phone = maskPhoneNumber(obj.phone);
+        return obj as unknown as IActivityDoc;
+      });
     }
 
     return deduplicated;
@@ -461,23 +481,30 @@ export class ActivityService {
 
     const limitNum = query.limit ? Math.min(Number(query.limit) || 500, 1000) : 500;
 
-    const activities = await Activity.find(filter)
-      .sort({ createdAt: -1 })
-      .limit(limitNum)
-      .populate('leadId', 'name phone temperature tag stage')
-      .populate('userId', 'name email branch')
-      .lean();
+    const [activities, settings] = await Promise.all([
+      Activity.find(filter)
+        .sort({ createdAt: -1 })
+        .limit(limitNum)
+        .populate('leadId', 'name phone temperature tag stage')
+        .populate('userId', 'name email branch')
+        .lean(),
+      SettingService.getSettings(),
+    ]);
+
+    const shouldMask = requester.role === 'AGENT' && !!settings.maskContactNumber;
 
     return activities.map((rawAct) => {
       const act = rawAct as unknown as Record<string, unknown>;
       const leadObj = act.leadId && typeof act.leadId === 'object' ? (act.leadId as Record<string, unknown>) : null;
       const userObj = act.userId && typeof act.userId === 'object' ? (act.userId as Record<string, unknown>) : null;
 
+      const phone = (act.phone as string) || (leadObj?.phone as string) || '';
+      const maskedPhone = shouldMask ? maskPhoneNumber(phone) : phone;
+
       const customerName =
         (leadObj?.name as string) ||
-        (act.phone ? `Customer (${act.phone})` : 'Lead Contact');
+        (act.phone ? `Customer (${maskedPhone})` : 'Lead Contact');
 
-      const phone = (act.phone as string) || (leadObj?.phone as string) || '';
       const temperature = (act.tag as string) || (leadObj?.temperature as string) || (leadObj?.tag as string) || 'WARM';
 
       return {
@@ -487,7 +514,7 @@ export class ActivityService {
         userId: userObj?._id ? String(userObj._id) : act.userId ? String(act.userId) : requester._id.toString(),
         agentName: (userObj?.name as string) || requester.name,
         customerName,
-        phone,
+        phone: maskedPhone,
         type: act.type as 'CALL' | 'UPDATE',
         direction: (act.direction as 'OUTGOING' | 'INCOMING') || 'OUTGOING',
         connected: Boolean(act.connected),
