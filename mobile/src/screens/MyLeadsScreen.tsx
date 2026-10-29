@@ -365,6 +365,21 @@ const MyLeadsScreenContent: React.FC = () => {
           : l?.campaignId;
 
       const normalizedStage = (l?.stage || 'New').toString().trim().toLowerCase();
+      const isNotConnectedStage =
+        normalizedStage.includes('not connected') ||
+        normalizedStage.includes('did not pick') ||
+        normalizedStage.includes('no answer') ||
+        normalizedStage.includes('busy') ||
+        normalizedStage.includes('disconnected') ||
+        normalizedStage.includes('switch') ||
+        normalizedStage.includes('coverage') ||
+        normalizedStage.includes('ringing') ||
+        normalizedStage.includes('unreachable') ||
+        normalizedStage.includes('call cut') ||
+        normalizedStage.includes('not completed') ||
+        normalizedStage.includes('invalid') ||
+        normalizedStage.includes('not in use');
+
       const hasFollowUpSchedule = !!l?.nextFollowUpAt;
 
       let stg: 'New' | 'Interested' | 'Follow-up' | 'Not connected' | 'Not Interested';
@@ -380,13 +395,7 @@ const MyLeadsScreenContent: React.FC = () => {
         l?.status === 'CLOSED'
       ) {
         stg = 'Not Interested';
-      } else if (
-        normalizedStage === 'not connected' ||
-        normalizedStage === 'busy' ||
-        normalizedStage === 'ringing' ||
-        normalizedStage === 'switched off' ||
-        normalizedStage === 'unreachable'
-      ) {
+      } else if (isNotConnectedStage) {
         stg = 'Not connected';
       } else if (
         hasFollowUpSchedule ||
@@ -527,8 +536,8 @@ const MyLeadsScreenContent: React.FC = () => {
 
       // Status filter
       if (selectedFilter === 'All') {
-        // By default in All (Active Working Leads), hide Customer Lost / Not Interested so telecallers don't disturb them
-        if (isLost) {
+        // By default in All (Active Working Leads), hide Customer Lost / Not Interested so telecallers don't disturb them (unless actively searching)
+        if (!q && isLost) {
           return false;
         }
       } else if (selectedFilter === 'Not Interested') {
@@ -542,9 +551,16 @@ const MyLeadsScreenContent: React.FC = () => {
 
       // Search query (debounced)
       if (q) {
-        return (
-          (lead.name || '').toLowerCase().includes(q) ||
+        const qDigits = q.replace(/\D/g, '');
+        const phoneDigits = (lead.phone || '').replace(/\D/g, '');
+        const rawPhoneDigits = ((lead.rawLead?.phone) || '').replace(/\D/g, '');
+        const phoneMatches =
           (lead.phone || '').toLowerCase().includes(q) ||
+          (qDigits.length >= 4 && (phoneDigits.includes(qDigits) || rawPhoneDigits.includes(qDigits)));
+
+        return (
+          phoneMatches ||
+          (lead.name || '').toLowerCase().includes(q) ||
           (lead.campaignName || '').toLowerCase().includes(q)
         );
       }
