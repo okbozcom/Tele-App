@@ -322,7 +322,7 @@ export const FollowUpsScreen: React.FC = () => {
   // Real backend query for follow-ups
   const { data: realFollowupsData, refetch, isRefetching } = useQuery({
     queryKey: ['followUps'],
-    queryFn: () => fetchMyLeads({ type: 'FOLLOW_UP', limit: 5000 }),
+    queryFn: () => fetchMyLeads({ type: 'FOLLOW_UP', limit: 500 }),
   });
 
   const handleOpenLead = useCallback((item: FollowUpItem) => {

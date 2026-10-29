@@ -313,6 +313,19 @@ const MyLeadsScreenContent: React.FC = () => {
     });
   }, [userLeadsCacheKey]);
 
+  const backendType: 'ALL' | 'NEW' | 'INTERESTED' | 'FOLLOW_UP' | 'NOT_CONNECTED' | 'NOT_INTERESTED' =
+    selectedFilter === 'New'
+      ? 'NEW'
+      : selectedFilter === 'Follow-up'
+      ? 'FOLLOW_UP'
+      : selectedFilter === 'Not connected'
+      ? 'NOT_CONNECTED'
+      : selectedFilter === 'Interested'
+      ? 'INTERESTED'
+      : selectedFilter === 'Not Interested'
+      ? 'NOT_INTERESTED'
+      : 'ALL';
+
   const {
     data: leadsData,
     isLoading: isLeadsLoading,
@@ -321,8 +334,14 @@ const MyLeadsScreenContent: React.FC = () => {
     error: leadsError,
     refetch,
   } = useQuery({
-    queryKey: ['myLeadsList', user?._id],
-    queryFn: () => fetchMyLeads({ limit: 5000 }),
+    queryKey: ['myLeadsList', user?._id, backendType, selectedCampaignId, debouncedSearch],
+    queryFn: () =>
+      fetchMyLeads({
+        type: backendType,
+        campaignId: selectedCampaignId || undefined,
+        search: debouncedSearch || undefined,
+        limit: 200,
+      }),
     refetchInterval: 60000,
     refetchIntervalInBackground: false,
     staleTime: 1000 * 30, // 30 seconds TTL so lead updates reflect promptly

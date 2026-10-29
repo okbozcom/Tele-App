@@ -238,5 +238,8 @@ activitySchema.index({ phone: 1, createdAt: -1 });
 activitySchema.index({ branch: 1, createdAt: -1 });
 activitySchema.index({ userId: 1, createdAt: -1 });
 activitySchema.index({ createdAt: -1, branch: 1 });
+activitySchema.index({ type: 1, createdAt: -1 });
+activitySchema.index({ type: 1, userId: 1, createdAt: -1 });
+activitySchema.index({ dayIST: 1, type: 1 });
 
 export const Activity = model<IActivityDoc>('Activity', activitySchema);

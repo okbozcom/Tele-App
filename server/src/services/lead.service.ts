@@ -102,19 +102,23 @@ export class LeadService {
     const limit = query.limit || 20;
     const skip = (page - 1) * limit;
 
+    const findQuery = Lead.find(filter)
+      .populate('assignedTo', 'name email phone')
+      .sort({ createdAt: -1 })
+      .skip(skip)
+      .limit(limit);
+    const leadsPromise =
+      typeof (findQuery as any).lean === 'function' ? (findQuery as any).lean() : findQuery;
+
     const [leads, total] = await Promise.all([
-      Lead.find(filter)
-        .populate('assignedTo', 'name email phone')
-        .sort({ createdAt: -1 })
-        .skip(skip)
-        .limit(limit),
+      leadsPromise,
       Lead.countDocuments(filter),
     ]);
 
     const settings = await SettingService.getSettings();
     const shouldMask = requester.role === 'AGENT' && !!settings.maskContactNumber;
 
-    const formattedLeads = leads.map((l) => {
+    const formattedLeads = (leads as any[]).map((l: any) => {
       const obj = l.toObject ? l.toObject() : { ...l };
       if (shouldMask) {
         obj.phone = maskPhoneNumber(obj.phone);
@@ -256,18 +260,9 @@ export class LeadService {
           as: 'campaign',
         },
       },
-      { $unwind: '$campaign' },
-      {
-        $lookup: {
-          from: 'users',
-          localField: 'assignedTo',
-          foreignField: '_id',
-          as: 'assignedUser',
-        },
-      },
       {
         $unwind: {
-          path: '$assignedUser',
+          path: '$campaign',
           preserveNullAndEmptyArrays: true,
         },
       },
@@ -333,6 +328,20 @@ export class LeadService {
           data: [
             { $skip: skip },
             { $limit: limit },
+            {
+              $lookup: {
+                from: 'users',
+                localField: 'assignedTo',
+                foreignField: '_id',
+                as: 'assignedUser',
+              },
+            },
+            {
+              $unwind: {
+                path: '$assignedUser',
+                preserveNullAndEmptyArrays: true,
+              },
+            },
             {
               $project: {
                 _id: 1,
@@ -970,9 +979,13 @@ export class LeadService {
       filter.assignedTo = requester._id;
     }
 
-    const leads = await Lead.find(filter)
+    const exportQuery = Lead.find(filter)
       .populate('assignedTo', 'name email')
       .sort({ createdAt: -1 });
+    const leads =
+      typeof (exportQuery as any).lean === 'function'
+        ? await (exportQuery as any).lean()
+        : await exportQuery;
 
     const lines: string[] = [
       'Name,Phone,Email,Stage,Tag,Status,Branch,Assigned Agent,Next Follow-up,Created At',
@@ -1030,10 +1043,14 @@ export class LeadService {
     const settings = await SettingService.getSettings();
     const shouldMask = requester.role === 'AGENT' && !!settings.maskContactNumber;
 
-    const leads = await Lead.find(filter)
+    const myLeadsExportQuery = Lead.find(filter)
       .populate('campaignId', 'name')
       .populate('assignedTo', 'name email')
       .sort({ createdAt: -1 });
+    const leads =
+      typeof (myLeadsExportQuery as any).lean === 'function'
+        ? await (myLeadsExportQuery as any).lean()
+        : await myLeadsExportQuery;
 
     const lines: string[] = [
       'Name,Phone,Email,Campaign,Stage,Tag,Status,Branch,Assigned Agent,Next Follow-up,Created At',

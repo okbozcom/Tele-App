@@ -260,6 +260,43 @@ export const fetchCampaignById = async (
   return response.data;
 };
 
+export interface CampaignStatsResult {
+  stats: {
+    total: number;
+    open: number;
+    inProgress: number;
+    closed: number;
+    followUp: number;
+    notConnected: number;
+    converted: number;
+    lost: number;
+    closedBySystem: number;
+  };
+  agentDistribution: Array<{
+    agentId: string;
+    agentName: string;
+    total: number;
+    open: number;
+    followUp: number;
+    notConnected: number;
+    closed: number;
+  }>;
+}
+
+/**
+ * Fetches lightweight, server-aggregated stats and agent distribution for a campaign.
+ * Zero lead documents are transferred over the wire.
+ */
+export const fetchCampaignStats = async (
+  campaignId: string,
+): Promise<CampaignStatsResult> => {
+  const response = await apiClient.get<CampaignStatsResult>(
+    `/api/campaigns/${campaignId}/stats`,
+  );
+  return response.data;
+};
+
+
 /**
  * Creates a single walk-in lead under a designated campaign.
  */

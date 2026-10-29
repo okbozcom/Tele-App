@@ -173,7 +173,13 @@ export interface LeadCampaignSummary {
   engagementForm?: EngagementQuestion[];
 }
 
-export type LeadFilterType = 'ALL' | 'NEW' | 'FOLLOW_UP' | 'NOT_CONNECTED';
+export type LeadFilterType =
+  | 'ALL'
+  | 'NEW'
+  | 'FOLLOW_UP'
+  | 'NOT_CONNECTED'
+  | 'INTERESTED'
+  | 'NOT_INTERESTED';
 
 export interface DisposeLeadPayload {
   phone?: string | null;

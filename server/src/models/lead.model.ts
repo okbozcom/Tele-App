@@ -141,7 +141,11 @@ leadSchema.index({ campaignId: 1, status: 1, lockedAt: 1, nextFollowUpAt: 1 });
 
 // High-speed compound indexes for 50k+ volume scaling:
 leadSchema.index({ assignedTo: 1, status: 1, stage: 1, createdAt: -1 });
+leadSchema.index({ assignedTo: 1, status: 1, lastContactedAt: -1 });
+leadSchema.index({ assignedTo: 1, status: 1, attemptCount: 1 });
 leadSchema.index({ campaignId: 1, status: 1, stage: 1 });
+leadSchema.index({ campaignId: 1, status: 1, lastContactedAt: -1 });
+leadSchema.index({ campaignId: 1, status: 1, attemptCount: 1 });
 leadSchema.index({ branch: 1, status: 1, createdAt: -1 });
 leadSchema.index({ createdAt: -1 });
 

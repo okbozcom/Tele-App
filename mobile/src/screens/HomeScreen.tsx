@@ -61,6 +61,7 @@ import {
   fetchDashboardReports,
   fetchUserCallsReport,
   fetchMyLeads,
+  fetchMyLeadsCounts,
   fetchCampaigns,
   fetchBranches,
   MyLeadsResponse,
@@ -323,11 +324,23 @@ const HomeScreenContent: React.FC = () => {
         type: 'ALL',
         campaignId: selectedCampaignId || undefined,
         userId: !isAgent && callScope === 'MY' && user?._id ? String(user._id) : undefined,
-        limit: 5000,
+        limit: 100,
       }),
     refetchInterval: 45000,
     refetchIntervalInBackground: false,
     staleTime: 1000 * 60 * 3, // 3 minutes cache TTL
+  });
+
+  const { data: serverCounts } = useQuery({
+    queryKey: ['homeMyLeadsCounts', selectedCampaignId, callScope, user?._id],
+    queryFn: () =>
+      fetchMyLeadsCounts({
+        campaignId: selectedCampaignId || undefined,
+        userId: !isAgent && callScope === 'MY' && user?._id ? String(user._id) : undefined,
+      }),
+    refetchInterval: 30000,
+    refetchIntervalInBackground: false,
+    staleTime: 1000 * 20,
   });
 
   useEffect(() => {
@@ -510,7 +523,7 @@ const HomeScreenContent: React.FC = () => {
   // ==============================================================
   const myAssignedLeadsCount =
     effectiveBranch === 'ALL'
-      ? (effectiveMyLeadsData?.total ?? (effectiveMyLeadsData?.leads?.length || 0))
+      ? (serverCounts?.all ?? effectiveMyLeadsData?.total ?? (effectiveMyLeadsData?.leads?.length || 0))
       : allBranchFilteredLeads.length;
 
   // Calls made and connected (combines local session with backend reports)
@@ -1250,7 +1263,9 @@ const HomeScreenContent: React.FC = () => {
                     </View>
                   </View>
                   <View style={[styles.neoQueueCountBadge, { backgroundColor: '#E6F4EA' }]}>
-                    <Text style={[styles.neoQueueCountBadgeText, { color: '#0F9D58' }]}>{newUnattemptedLeads.length}</Text>
+                    <Text style={[styles.neoQueueCountBadgeText, { color: '#0F9D58' }]}>
+                      {serverCounts ? serverCounts.new : newUnattemptedLeads.length}
+                    </Text>
                   </View>
                 </View>
                 <View style={styles.neoQueueActionsRow}>
@@ -1288,7 +1303,9 @@ const HomeScreenContent: React.FC = () => {
                     </View>
                   </View>
                   <View style={[styles.neoQueueCountBadge, { backgroundColor: '#FEF3C7' }]}>
-                    <Text style={[styles.neoQueueCountBadgeText, { color: '#B45309' }]}>{followUpLeads.length}</Text>
+                    <Text style={[styles.neoQueueCountBadgeText, { color: '#B45309' }]}>
+                      {serverCounts ? serverCounts.followup : followUpLeads.length}
+                    </Text>
                   </View>
                 </View>
                 <View style={styles.neoQueueActionsRow}>
@@ -1326,7 +1343,9 @@ const HomeScreenContent: React.FC = () => {
                     </View>
                   </View>
                   <View style={[styles.neoQueueCountBadge, { backgroundColor: '#FEE2E2' }]}>
-                    <Text style={[styles.neoQueueCountBadgeText, { color: '#DC2626' }]}>{notConnectedLeads.length}</Text>
+                    <Text style={[styles.neoQueueCountBadgeText, { color: '#DC2626' }]}>
+                      {serverCounts ? serverCounts.notConnected : notConnectedLeads.length}
+                    </Text>
                   </View>
                 </View>
                 <View style={styles.neoQueueActionsRow}>

@@ -59,5 +59,7 @@ const workSessionSchema = new Schema<IWorkSessionDoc>(
 );
 
 workSessionSchema.index({ userId: 1, date: 1 }, { unique: true });
+workSessionSchema.index({ date: 1, userId: 1 });
+workSessionSchema.index({ date: 1, status: 1 });
 
 export const WorkSession = model<IWorkSessionDoc>('WorkSession', workSessionSchema);

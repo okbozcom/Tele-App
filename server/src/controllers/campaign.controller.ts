@@ -51,6 +51,22 @@ export class CampaignController {
     }
   }
 
+  public static async getCampaignStats(
+    req: Request,
+    res: Response,
+    next: NextFunction,
+  ): Promise<void> {
+    try {
+      if (!req.user) {
+        throw new AppError('Authentication required', 401);
+      }
+      const data = await CampaignService.getCampaignStats(req.user, req.params.id);
+      res.status(200).json(data);
+    } catch (error) {
+      next(error);
+    }
+  }
+
   public static async updateCampaign(
     req: Request,
     res: Response,

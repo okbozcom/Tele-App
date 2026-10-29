@@ -30,7 +30,7 @@ import {
   RefreshCw,
 } from 'lucide-react-native';
 
-import { fetchMyLeads, fetchCampaignById, fetchCampaigns } from '../api/leadApi';
+import { fetchCampaignStats, fetchCampaignById, fetchCampaigns } from '../api/leadApi';
 import { useCampaignStore } from '../store/campaignStore';
 import { CrmSidebarContent, CrmSidebarModalDrawer } from '../components/CrmSidebar';
 import { FloatingDialpadFab } from '../components/FloatingDialpadFab';
@@ -166,139 +166,43 @@ export const CampaignDetailScreen: React.FC = () => {
     enabled: Boolean(activeCampaignId),
   });
 
-  // 2. Fetch Leads assigned to this campaign
-  const { data: leadsData, isLoading: isLeadsLoading, isRefetching, refetch: refetchLeads } = useQuery({
-    queryKey: ['campaignDetailLeads', activeCampaignId],
-    queryFn: () => fetchMyLeads({ campaignId: activeCampaignId, limit: 5000 }),
+  // 2. Fetch Lightweight Server Aggregated Stats & Distribution for this campaign
+  const {
+    data: statsData,
+    isLoading: isStatsLoading,
+    isRefetching,
+    refetch: refetchStats,
+  } = useQuery({
+    queryKey: ['campaignDetailStats', activeCampaignId],
+    queryFn: () => fetchCampaignStats(activeCampaignId),
     enabled: Boolean(activeCampaignId),
+    staleTime: 1000 * 30,
+    refetchInterval: 30000,
   });
 
   const campaign = campaignData?.campaign || campaignsList.find((c) => c._id === activeCampaignId) || initialCampaign;
   const campaignName = campaign?.name || route.params?.campaignName || 'Campaign Details';
-  const leads: Lead[] = leadsData?.leads || [];
 
   // ====================================================================
-  // METRICS COMPUTATIONS (Matching Image 3)
+  // METRICS COMPUTATIONS (Lightweight server-aggregated result)
   // ====================================================================
-  const stats = useMemo(() => {
-    const total = leads.length;
+  const stats = statsData?.stats || {
+    total: 0,
+    open: 0,
+    inProgress: 0,
+    closed: 0,
+    followUp: 0,
+    notConnected: 0,
+    converted: 0,
+    lost: 0,
+    closedBySystem: 0,
+  };
 
-    // Open leads: New or 0 attempts
-    const open = leads.filter(
-      (l) => l.status === 'OPEN' && (l.stage === 'New' || !l.stage || l.attemptCount === 0),
-    ).length;
-
-    // Follow-up leads
-    const followUp = leads.filter((l) => l.stage?.toLowerCase().includes('follow')).length;
-
-    // Not Connected leads
-    const notConnected = leads.filter(
-      (l) =>
-        l.stage?.toLowerCase().includes('not connected') ||
-        l.stage?.toLowerCase().includes('busy') ||
-        l.stage?.toLowerCase().includes('missed') ||
-        l.stage?.toLowerCase().includes('switched'),
-    ).length;
-
-    // In-Progress leads: Open but attempted
-    const inProgress = Math.max(
-      0,
-      leads.filter((l) => l.status === 'OPEN' && l.stage !== 'New' && l.attemptCount > 0).length ||
-        followUp + notConnected,
-    );
-
-    // Converted leads
-    const converted = leads.filter(
-      (l) =>
-        l.stage?.toLowerCase().includes('converted') ||
-        l.stage?.toLowerCase().includes('won') ||
-        l.stage?.toLowerCase().includes('deal'),
-    ).length;
-
-    // Lost leads
-    const lost = leads.filter(
-      (l) =>
-        l.stage?.toLowerCase().includes('lost') ||
-        l.stage?.toLowerCase().includes('not interested') ||
-        l.stage?.toLowerCase().includes('junk'),
-    ).length;
-
-    // Closed by system / Admin
-    const rawClosed = leads.filter((l) => l.status === 'CLOSED').length;
-    const closedBySystem = Math.max(0, rawClosed - converted - lost);
-    const closed = converted + lost + closedBySystem || rawClosed;
-
-    return {
-      total,
-      open,
-      inProgress,
-      closed,
-      followUp,
-      notConnected,
-      converted,
-      lost,
-      closedBySystem,
-    };
-  }, [leads]);
-
-  // Lead distribution by agent
-  const agentDistribution = useMemo(() => {
-    const map = new Map<
-      string,
-      {
-        agentName: string;
-        open: number;
-        followUp: number;
-        notConnected: number;
-        closed: number;
-        total: number;
-      }
-    >();
-
-    for (const l of leads) {
-      let aName = 'Unassigned';
-      if (typeof l.assignedTo === 'object' && l.assignedTo?.name) {
-        aName = l.assignedTo.name;
-      } else if (typeof l.assignedTo === 'string' && l.assignedTo) {
-        aName = l.assignedTo;
-      }
-
-      if (!map.has(aName)) {
-        map.set(aName, {
-          agentName: aName,
-          open: 0,
-          followUp: 0,
-          notConnected: 0,
-          closed: 0,
-          total: 0,
-        });
-      }
-
-      const rec = map.get(aName)!;
-      rec.total++;
-
-      const stg = (l.stage || '').toLowerCase();
-      if (l.status === 'CLOSED' || stg.includes('converted') || stg.includes('lost')) {
-        rec.closed++;
-      } else if (stg.includes('follow')) {
-        rec.followUp++;
-      } else if (
-        stg.includes('not connected') ||
-        stg.includes('busy') ||
-        stg.includes('missed')
-      ) {
-        rec.notConnected++;
-      } else {
-        rec.open++;
-      }
-    }
-
-    return Array.from(map.values()).sort((a, b) => b.total - a.total);
-  }, [leads]);
+  const agentDistribution = statsData?.agentDistribution || [];
 
   const handleRefresh = () => {
     refetchCampaign();
-    refetchLeads();
+    refetchStats();
   };
 
   const priorityLabel =
@@ -431,7 +335,7 @@ export const CampaignDetailScreen: React.FC = () => {
         showsVerticalScrollIndicator={false}
         refreshControl={<RefreshControl refreshing={isRefetching} onRefresh={handleRefresh} colors={['#0F9D58']} />}
       >
-        {(isLeadsLoading || (!activeCampaignId && isCampaignsLoading)) ? (
+        {(isStatsLoading || (!activeCampaignId && isCampaignsLoading)) ? (
           <View style={styles.loadingWrap}>
             <ActivityIndicator size="large" color="#0F9D58" />
             <Text style={styles.loadingText}>Loading campaign statistics...</Text>
