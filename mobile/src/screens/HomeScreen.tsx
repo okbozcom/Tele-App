@@ -54,6 +54,7 @@ import { useAuthStore } from '../store/authStore';
 import { useCampaignStore } from '../store/campaignStore';
 import { useLeadHistoryStore, deduplicateActivities } from '../store/leadHistoryStore';
 import { useNotificationStore } from '../store/notificationStore';
+import { useDailyStats } from '../hooks/useDailyStats';
 import { callSession } from '../services/callSession';
 import { incomingCallSyncService } from '../services/incomingCallSync.service';
 import {
@@ -246,6 +247,7 @@ const HomeScreenContent: React.FC = () => {
 
   // 1. Dashboard Metrics from Backend (optimized polling: 45s)
   const queryUserId = !isAgent && callScope === 'TEAM' ? undefined : user?._id;
+  const dailyStats = useDailyStats(period === 'Custom' && customDate ? customDate : undefined);
 
   const {
     data: dashboardData,
@@ -546,17 +548,26 @@ const HomeScreenContent: React.FC = () => {
   );
   const pendingInboundConnected = pendingInboundActivities.filter((a) => a.connected);
 
-  const callsMade = hasBackendDashboard
-    ? (dashboardData.callsMade || 0) + pendingOutboundActivities.length
-    : localCallsCount;
+  const callsMade =
+    period === 'Today' && dailyStats.stats
+      ? dailyStats.attempts + pendingOutboundActivities.length
+      : hasBackendDashboard
+      ? (dashboardData.callsMade || 0) + pendingOutboundActivities.length
+      : localCallsCount;
 
-  const connectedCalls = hasBackendDashboard
-    ? (dashboardData.connectedCalls || 0) + pendingConnectedActivities.length
-    : localConnectedCount;
+  const connectedCalls =
+    period === 'Today' && dailyStats.stats
+      ? dailyStats.connected + pendingConnectedActivities.length
+      : hasBackendDashboard
+      ? (dashboardData.connectedCalls || 0) + pendingConnectedActivities.length
+      : localConnectedCount;
 
-  const totalCallDurationSeconds = hasBackendDashboard
-    ? (dashboardData.totalDurationSeconds || 0) + pendingDuration
-    : localTotalDuration;
+  const totalCallDurationSeconds =
+    period === 'Today' && dailyStats.stats
+      ? dailyStats.talkSeconds + pendingDuration
+      : hasBackendDashboard
+      ? (dashboardData.totalDurationSeconds || 0) + pendingDuration
+      : localTotalDuration;
 
   const connectRatePercent = callsMade > 0 ? ((connectedCalls / callsMade) * 100).toFixed(0) + '%' : '0%';
 
