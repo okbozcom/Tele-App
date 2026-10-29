@@ -12,6 +12,7 @@ export interface ISetting {
   displayStartCallingButton?: boolean;
   allowCallRecordingPlayback?: boolean;
   preferredSimSlot?: number | null;
+  leadPriorityOrder?: string[];
   createdAt: Date;
   updatedAt: Date;
 }
@@ -63,6 +64,16 @@ const settingSchema = new Schema<ISettingDoc>(
     preferredSimSlot: {
       type: Number,
       default: null,
+    },
+    leadPriorityOrder: {
+      type: [String],
+      default: [
+        'OVERDUE_FOLLOWUPS',
+        'TODAY_FOLLOWUPS',
+        'HIGH_PRIORITY_CAMPAIGNS',
+        'NEW_UNCONTACTED',
+        'RETRY_NOT_CONNECTED',
+      ],
     },
   },
   {

@@ -14,6 +14,7 @@ export const updateSettingSchema = z.object({
       displayStartCallingButton: z.boolean().optional(),
       allowCallRecordingPlayback: z.boolean().optional(),
       preferredSimSlot: z.number().int().min(0).max(1).nullable().optional(),
+      leadPriorityOrder: z.array(z.string()).optional(),
     })
     .refine((data) => Object.keys(data).length > 0, {
       message: 'At least one setting field must be provided for update',

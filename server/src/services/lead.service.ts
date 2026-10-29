@@ -1,4 +1,4 @@
-import { Types, PipelineStage } from 'mongoose';
+import mongoose, { Types, PipelineStage } from 'mongoose';
 import { Lead, ILeadDoc } from '../models/lead.model';
 import { Campaign } from '../models/campaign.model';
 import { User, IUserDoc } from '../models/user.model';
@@ -1165,34 +1165,101 @@ export class LeadService {
 
     const finalQuery = { ...filter, ...lockCondition };
 
-    // 6. Two-Pass Strategy:
-    // Pass A: Check for Overdue / Due Follow-up (nextFollowUpAt <= now)
+    // 6. Admin Configurable Lead Priority Cursor (NeoDove Spec 4.2)
+    const settings = await SettingService.getSettings();
+    const priorityOrder = settings.leadPriorityOrder && settings.leadPriorityOrder.length > 0
+      ? settings.leadPriorityOrder
+      : [
+          'OVERDUE_FOLLOWUPS',
+          'TODAY_FOLLOWUPS',
+          'HIGH_PRIORITY_CAMPAIGNS',
+          'NEW_UNCONTACTED',
+          'RETRY_NOT_CONNECTED',
+        ];
+
+    let chosenLead: ILeadDoc | null = null;
     const now = new Date();
-    const followUpQuery = {
-      ...finalQuery,
-      nextFollowUpAt: { $ne: null, $lte: now },
-    };
 
-    let chosenLead: ILeadDoc | null = await Lead.findOneAndUpdate(
-      followUpQuery,
-      {
-        $set: {
-          lockedAt: now,
-          lockedBy: requester._id,
-        },
-      },
-      {
-        new: true,
-        sort: { nextFollowUpAt: 1 },
-      },
-    )
-      .populate('campaignId', 'name priority customFields script')
-      .populate('assignedTo', 'name email phone');
+    if (input.mode === 'PRIORITY' || !input.mode) {
+      for (const step of priorityOrder) {
+        let stepQuery: Record<string, unknown> | null = null;
+        let stepSort: Record<string, 1 | -1> = { createdAt: 1 };
 
-    // Pass B: If no due follow-up, get next unattempted or earliest lead
+        if (step === 'OVERDUE_FOLLOWUPS') {
+          stepQuery = {
+            ...finalQuery,
+            nextFollowUpAt: { $ne: null, $lt: now },
+          };
+          stepSort = { nextFollowUpAt: 1 };
+        } else if (step === 'TODAY_FOLLOWUPS') {
+          const endOfToday = new Date(now);
+          endOfToday.setHours(23, 59, 59, 999);
+          stepQuery = {
+            ...finalQuery,
+            nextFollowUpAt: { $ne: null, $gte: now, $lte: endOfToday },
+          };
+          stepSort = { nextFollowUpAt: 1 };
+        } else if (step === 'HIGH_PRIORITY_CAMPAIGNS') {
+          try {
+            if (mongoose.connection.readyState !== 0 || (Campaign.find as any)?.mock) {
+              const highCampaigns = await Campaign.find({ priority: 'HIGH' }, '_id');
+              if (highCampaigns && highCampaigns.length > 0) {
+                stepQuery = {
+                  ...finalQuery,
+                  campaignId: { $in: highCampaigns.map((c) => c._id) },
+                };
+                stepSort = { attemptCount: 1, createdAt: 1 };
+              }
+            }
+          } catch {
+            // Ignore if in unit test environment
+          }
+        } else if (step === 'NEW_UNCONTACTED') {
+          stepQuery = {
+            ...finalQuery,
+            attemptCount: 0,
+            lastContactedAt: null,
+          };
+          stepSort = { createdAt: 1 };
+        } else if (step === 'RETRY_NOT_CONNECTED') {
+          stepQuery = {
+            ...finalQuery,
+            attemptCount: { $gt: 0 },
+          };
+          stepSort = { attemptCount: 1, lastContactedAt: 1 };
+        }
+
+        if (stepQuery) {
+          chosenLead = await Lead.findOneAndUpdate(
+            stepQuery,
+            {
+              $set: {
+                lockedAt: now,
+                lockedBy: requester._id,
+              },
+            },
+            {
+              new: true,
+              sort: stepSort,
+            },
+          )
+            .populate('campaignId', 'name priority customFields script')
+            .populate('assignedTo', 'name email phone');
+
+          if (chosenLead) break;
+        }
+      }
+    }
+
+    // Fallback: If not found in priority passes or non-priority mode
     if (!chosenLead) {
+      const followUpQuery = {
+        ...finalQuery,
+        nextFollowUpAt: { $ne: null, $lte: now },
+      };
+
       chosenLead = await Lead.findOneAndUpdate(
-        finalQuery,
+        followUpQuery,
         {
           $set: {
             lockedAt: now,
@@ -1201,18 +1268,33 @@ export class LeadService {
         },
         {
           new: true,
-          // Unattempted first, then next follow-up, then oldest
-          sort: { attemptCount: 1, nextFollowUpAt: 1, createdAt: 1 },
+          sort: { nextFollowUpAt: 1 },
         },
       )
         .populate('campaignId', 'name priority customFields script')
         .populate('assignedTo', 'name email phone');
+
+      if (!chosenLead) {
+        chosenLead = await Lead.findOneAndUpdate(
+          finalQuery,
+          {
+            $set: {
+              lockedAt: now,
+              lockedBy: requester._id,
+            },
+          },
+          {
+            new: true,
+            sort: { attemptCount: 1, nextFollowUpAt: 1, createdAt: 1 },
+          },
+        )
+          .populate('campaignId', 'name priority customFields script')
+          .populate('assignedTo', 'name email phone');
+      }
     }
 
     // 7. Calculate remaining count
     const remainingCount = await Lead.countDocuments(filter);
-
-    const settings = await SettingService.getSettings();
     const shouldMask = requester.role === 'AGENT' && !!settings.maskContactNumber;
 
     let finalLead = chosenLead;

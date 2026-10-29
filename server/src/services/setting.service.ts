@@ -14,6 +14,13 @@ export const DEFAULT_SETTINGS = {
   displayStartCallingButton: true,
   allowCallRecordingPlayback: true,
   preferredSimSlot: null,
+  leadPriorityOrder: [
+    'OVERDUE_FOLLOWUPS',
+    'TODAY_FOLLOWUPS',
+    'HIGH_PRIORITY_CAMPAIGNS',
+    'NEW_UNCONTACTED',
+    'RETRY_NOT_CONNECTED',
+  ],
 };
 
 export class SettingService {
@@ -82,6 +89,10 @@ export class SettingService {
 
     if (updates.preferredSimSlot !== undefined) {
       setting.preferredSimSlot = updates.preferredSimSlot;
+    }
+
+    if (updates.leadPriorityOrder !== undefined) {
+      setting.leadPriorityOrder = updates.leadPriorityOrder;
     }
 
     await setting.save();
