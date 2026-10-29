@@ -1,7 +1,7 @@
 import { create } from 'zustand';
 import NetInfo from '@react-native-community/netinfo';
 import { storage } from '../utils/storage';
-import { disposeLead } from '../api/leadApi';
+import { disposeLead, batchSyncActivities } from '../api/leadApi';
 import { DisposeLeadPayload } from '../types';
 
 export type OutboxItemStatus = 'PENDING' | 'SYNCING' | 'FAILED' | 'SYNCED';
@@ -47,6 +47,8 @@ const generateUUID = (): string => {
   return 'outbox_' + Date.now().toString(36) + '_' + Math.random().toString(36).substring(2, 9);
 };
 
+let reconnectJitterTimer: any = null;
+
 export const useOutboxStore = create<OutboxState>((set, get) => ({
   items: [],
   isSyncing: false,
@@ -68,15 +70,18 @@ export const useOutboxStore = create<OutboxState>((set, get) => ({
 
     set({ initialized: true });
 
-    // Set up network connectivity listener
+    // Set up network connectivity listener with jitter to avoid thundering herd
     NetInfo.addEventListener((state) => {
       const online = Boolean(state.isConnected && state.isInternetReachable !== false);
       const wasOffline = !get().isOnline;
       set({ isOnline: online });
 
       if (online && wasOffline) {
-        // Just reconnected to network: trigger immediate outbox processing
-        get().processOutbox();
+        if (reconnectJitterTimer) clearTimeout(reconnectJitterTimer);
+        const jitter = Math.floor(Math.random() * 1500) + 500;
+        reconnectJitterTimer = setTimeout(() => {
+          get().processOutbox();
+        }, jitter);
       }
     });
 
@@ -90,7 +95,10 @@ export const useOutboxStore = create<OutboxState>((set, get) => ({
 
   enqueueMutation: async (type, leadId, payload, existingIdempotencyKey) => {
     const id = generateUUID();
-    const idempotencyKey = (existingIdempotencyKey && existingIdempotencyKey.trim()) ? existingIdempotencyKey : generateUUID();
+    const idempotencyKey =
+      existingIdempotencyKey && existingIdempotencyKey.trim()
+        ? existingIdempotencyKey
+        : generateUUID();
     const item: OutboxItem = {
       id,
       idempotencyKey,
@@ -126,62 +134,157 @@ export const useOutboxStore = create<OutboxState>((set, get) => ({
 
     try {
       const currentItems = [...get().items];
-      let hasChanges = false;
+      const pendingIndices = currentItems
+        .map((it, idx) => (it.status === 'PENDING' ? idx : -1))
+        .filter((idx) => idx !== -1);
 
-      for (let i = 0; i < currentItems.length; i++) {
-        const item = currentItems[i];
-        if (item.status !== 'PENDING') continue;
+      if (pendingIndices.length === 0) {
+        return;
+      }
 
-        // Mark SYNCING
-        currentItems[i] = {
-          ...item,
+      // Mark all pending as SYNCING
+      for (const idx of pendingIndices) {
+        currentItems[idx] = {
+          ...currentItems[idx],
           status: 'SYNCING',
           updatedAt: new Date().toISOString(),
-          attemptCount: item.attemptCount + 1,
+          attemptCount: currentItems[idx].attemptCount + 1,
         };
-        set({ items: [...currentItems] });
+      }
+      set({ items: [...currentItems] });
+
+      // Separate DISPOSE_LEAD items that can be batched to /api/sync/batch
+      const batchableIndices = pendingIndices.filter(
+        (idx) => currentItems[idx].type === 'DISPOSE_LEAD',
+      );
+
+      // Process in chunks of up to 50
+      const CHUNK_SIZE = 50;
+      for (let c = 0; c < batchableIndices.length; c += CHUNK_SIZE) {
+        const chunkIndices = batchableIndices.slice(c, c + CHUNK_SIZE);
+        const chunkEvents = chunkIndices.map((idx) => {
+          const it = currentItems[idx];
+          return {
+            clientEventId:
+              it.payload.clientEventId || it.idempotencyKey || it.id,
+            leadId: it.leadId,
+            connected:
+              it.payload.connected ?? (it.payload.stage !== 'NOT CONNECTED'),
+            notConnectedReason: it.payload.notConnectedReason,
+            stage: it.payload.stage || 'FOLLOW UP',
+            tag: it.payload.tag || null,
+            remark: it.payload.remark || null,
+            followUpAt: it.payload.followUpAt || null,
+            durationSeconds: it.payload.durationSeconds || 0,
+            direction: it.payload.direction || 'OUTGOING',
+            clientTimestamp: it.payload.clientTimestamp || it.createdAt,
+            answers: it.payload.answers,
+            callLogId: it.payload.callLogId || null,
+            classificationReason: it.payload.classificationReason || null,
+            durationSource: it.payload.durationSource || 'APP_ESTIMATE',
+            dispositionMismatch: Boolean(it.payload.dispositionMismatch),
+            noAttempt: Boolean(it.payload.noAttempt),
+          };
+        });
 
         try {
-          if (item.type === 'DISPOSE_LEAD') {
-            await disposeLead(item.leadId, item.payload);
+          const res = await batchSyncActivities(chunkEvents);
+          const resultMap = new Map<string, any>();
+          for (const r of res.results) {
+            resultMap.set(r.clientEventId, r);
           }
 
-          // Marked SYNCED
-          currentItems[i] = {
-            ...currentItems[i],
-            status: 'SYNCED',
-            updatedAt: new Date().toISOString(),
-          };
-          hasChanges = true;
-        } catch (err: any) {
-          const status = err?.response?.status;
-          const is4xx = status >= 400 && status < 500 && status !== 429;
-          const errMsg = err?.response?.data?.message || err?.message || 'Network request failed';
+          for (const idx of chunkIndices) {
+            const it = currentItems[idx];
+            const eventId =
+              it.payload.clientEventId || it.idempotencyKey || it.id;
+            const itemResult = resultMap.get(eventId);
 
-          currentItems[i] = {
-            ...currentItems[i],
-            status: 'FAILED',
-            lastError: errMsg,
-            permanentFailure: is4xx,
-            updatedAt: new Date().toISOString(),
-          };
-          hasChanges = true;
+            if (
+              itemResult &&
+              (itemResult.status === 'success' ||
+                itemResult.status === 'already_synced')
+            ) {
+              currentItems[idx] = {
+                ...currentItems[idx],
+                status: 'SYNCED',
+                updatedAt: new Date().toISOString(),
+              };
+            } else {
+              currentItems[idx] = {
+                ...currentItems[idx],
+                status: 'FAILED',
+                lastError: itemResult?.error || 'Sync error',
+                updatedAt: new Date().toISOString(),
+              };
+            }
+          }
+        } catch {
+          // If batch endpoint failed entirely, fall back to individual disposeLead
+          for (const idx of chunkIndices) {
+            const it = currentItems[idx];
+            try {
+              await disposeLead(it.leadId, it.payload);
+              currentItems[idx] = {
+                ...currentItems[idx],
+                status: 'SYNCED',
+                updatedAt: new Date().toISOString(),
+              };
+            } catch (singleErr: any) {
+              const status = singleErr?.response?.status;
+              const is4xx = status >= 400 && status < 500 && status !== 429;
+              const errMsg =
+                singleErr?.response?.data?.message ||
+                singleErr?.message ||
+                'Network request failed';
+
+              currentItems[idx] = {
+                ...currentItems[idx],
+                status: 'FAILED',
+                lastError: errMsg,
+                permanentFailure: is4xx,
+                updatedAt: new Date().toISOString(),
+              };
+            }
+          }
         }
       }
 
-      // Keep SYNCED items for max 24 hours, or filter them
+      // Handle any non-DISPOSE_LEAD pending items individually
+      const nonBatchable = pendingIndices.filter(
+        (idx) => currentItems[idx].type !== 'DISPOSE_LEAD',
+      );
+      for (const idx of nonBatchable) {
+        const item = currentItems[idx];
+        try {
+          await disposeLead(item.leadId, item.payload);
+          currentItems[idx] = {
+            ...currentItems[idx],
+            status: 'SYNCED',
+            updatedAt: new Date().toISOString(),
+          };
+        } catch (err: any) {
+          currentItems[idx] = {
+            ...currentItems[idx],
+            status: 'FAILED',
+            lastError: err?.message || 'Failed to sync',
+            updatedAt: new Date().toISOString(),
+          };
+        }
+      }
+
+      // Keep SYNCED items for max 2 hours for audit
       const pruned = currentItems.filter((it) => {
         if (it.status === 'SYNCED') {
-          const ageHours = (Date.now() - new Date(it.updatedAt).getTime()) / (1000 * 60 * 60);
-          return ageHours < 2; // retain 2 hours for audit
+          const ageHours =
+            (Date.now() - new Date(it.updatedAt).getTime()) / (1000 * 60 * 60);
+          return ageHours < 2;
         }
         return true;
       });
 
       set({ items: pruned });
-      if (hasChanges) {
-        await storage.setItem(OUTBOX_STORAGE_KEY, JSON.stringify(pruned));
-      }
+      await storage.setItem(OUTBOX_STORAGE_KEY, JSON.stringify(pruned));
     } finally {
       set({ isSyncing: false });
     }

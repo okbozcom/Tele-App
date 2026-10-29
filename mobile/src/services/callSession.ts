@@ -1,21 +1,23 @@
 import { AppState, AppStateStatus } from 'react-native';
 import { callService } from './call.service';
 import { incomingCallSyncService } from './incomingCallSync.service';
-import { useLeadHistoryStore } from '../store/leadHistoryStore';
 import { useAuthStore } from '../store/authStore';
 import { Lead, DetectedCallResult } from '../types';
 import { navigationRef } from '../navigation/RootNavigator';
+import { storage } from '../utils/storage';
 
 export interface StartCallOptions {
   callerSource?: 'DIALPAD' | 'QUEUE' | 'LEAD_DETAIL' | 'CALL_HISTORY' | 'MY_LEADS' | 'FOLLOW_UPS';
   queue?: Lead[];
   queueIndex?: number;
+  clientEventId?: string;
   onCallComplete?: (result: DetectedCallResult) => void;
 }
 
 interface ActiveCallSession {
   lead: Lead;
   startTime: number;
+  clientEventId: string;
   callerSource: string;
   queue?: Lead[];
   queueIndex?: number;
@@ -36,6 +38,9 @@ class CallSessionManager {
     AppState.addEventListener('change', (nextState) => {
       this.handleAppStateChange(nextState);
     });
+
+    // Check for orphaned pending call session (e.g. app killed while agent was on a call)
+    this.recoverPendingSession().catch(() => {});
   }
 
   public getActiveSession(): ActiveCallSession | null {
@@ -44,6 +49,48 @@ class CallSessionManager {
 
   public isCallInProgress(): boolean {
     return this.isCalling;
+  }
+
+  /**
+   * Recovers any active session saved before an unexpected app kill or restart.
+   */
+  private async recoverPendingSession() {
+    try {
+      const raw = await storage.getItem('tele_pending_call_session');
+      if (!raw) return;
+
+      await storage.removeItem('tele_pending_call_session');
+      const session = JSON.parse(raw);
+      if (!session || !session.lead || !session.startTime) return;
+
+      const elapsed = Date.now() - session.startTime;
+      // Only recover if the call started within the last 2 hours
+      if (elapsed > 2 * 60 * 60 * 1000) return;
+
+      console.log('[CallSession] Recovering pending call session for:', session.lead.name);
+      const result = await callService.getCallResult(session.lead.phone, session.startTime);
+
+      if (result.callPlaced ?? result.matchedLog ?? false) {
+        setTimeout(() => {
+          if (navigationRef.isReady()) {
+            navigationRef.navigate('Dispose', {
+              lead: session.lead,
+              initialTab: 'DISPOSE LEAD',
+              callDurationSeconds: result.durationSeconds || 0,
+              isCallConnected: result.connected,
+              callAttempt: true,
+              detectionMethod: 'RECOVERED_SESSION',
+              autoOpenNotConnectedSheet: !result.connected,
+              clientEventId: session.clientEventId,
+              startedAt: new Date(session.startTime).toISOString(),
+              durationSource: result.matchedLog ? 'DEVICE_CALL_LOG' : 'APP_ESTIMATE',
+            });
+          }
+        }, 1000);
+      }
+    } catch (err) {
+      console.warn('[CallSession] Failed to recover pending session:', err);
+    }
   }
 
   public async startCall(lead: Lead, options?: StartCallOptions): Promise<boolean> {
@@ -57,9 +104,13 @@ class CallSessionManager {
       return false;
     }
 
+    const clientEventId =
+      options?.clientEventId || `evt_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
+
     this.activeSession = {
       lead,
       startTime: Date.now(),
+      clientEventId,
       callerSource: options?.callerSource || 'DIRECT',
       queue: options?.queue,
       queueIndex: options?.queueIndex,
@@ -67,16 +118,31 @@ class CallSessionManager {
     };
     this.isCalling = true;
 
+    // Persist pending session immediately so crash / kill does not lose disposition
+    storage
+      .setItem(
+        'tele_pending_call_session',
+        JSON.stringify({
+          lead,
+          startTime: this.activeSession.startTime,
+          clientEventId,
+          callerSource: this.activeSession.callerSource,
+        }),
+      )
+      .catch(() => {});
+
     try {
       const ok = await callService.startCall(lead);
       if (!ok) {
         this.activeSession = null;
         this.isCalling = false;
+        storage.removeItem('tele_pending_call_session').catch(() => {});
       }
       return ok;
     } catch (err) {
       this.activeSession = null;
       this.isCalling = false;
+      storage.removeItem('tele_pending_call_session').catch(() => {});
       throw err;
     }
   }
@@ -84,6 +150,7 @@ class CallSessionManager {
   public cancelActiveSession() {
     this.activeSession = null;
     this.isCalling = false;
+    storage.removeItem('tele_pending_call_session').catch(() => {});
   }
 
   private async handleAppStateChange(nextState: AppStateStatus) {
@@ -103,8 +170,12 @@ class CallSessionManager {
       this.activeSession = null;
       this.isCalling = false;
 
+      // Clear persisted pending session from storage
+      storage.removeItem('tele_pending_call_session').catch(() => {});
+
       const startTime = session.startTime;
       const lead = session.lead;
+      const clientEventId = session.clientEventId;
 
       let result: DetectedCallResult = { connected: false, durationSeconds: 0 };
       try {
@@ -123,23 +194,8 @@ class CallSessionManager {
         result = { connected: false, durationSeconds: 0 };
       }
 
-      // ==============================================================
-      // NEODOVE-GRADE VERIFICATION: Was a call actually placed?
-      // If the agent opened the dialer and pressed Back without dialing,
-      // NO call log entry exists. DO NOT increment call count or log activity!
-      // ==============================================================
+      // Was a call actually placed? If user pressed back without dialing, do not count attempt
       const wasCallActuallyPlaced = result.callPlaced ?? result.matchedLog ?? false;
-
-      let classificationReason: string;
-      if (!wasCallActuallyPlaced) {
-        classificationReason = 'AGENT_ABORTED_OR_CANCELLED';
-      } else if (result.connected && result.durationSeconds >= 5) {
-        classificationReason = 'CONNECTED_TALK_TIME';
-      } else if (result.connected && result.durationSeconds > 0) {
-        classificationReason = 'BRIEF_CONNECTED';
-      } else {
-        classificationReason = 'UNANSWERED_0S';
-      }
 
       if (!wasCallActuallyPlaced) {
         console.log(
@@ -155,44 +211,14 @@ class CallSessionManager {
       }
 
       const stableCallLogId =
-        (result as any).logId ||
-        `call-${startTime}-${lead.phone.replace(/\D/g, '').slice(-10)}`;
-      const idempotencyKey = `disp-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
-
-      // Record strictly 1 single deduplicated activity in useLeadHistoryStore
-      try {
-        const user = useAuthStore.getState().user;
-        useLeadHistoryStore.getState().addActivity(lead._id, {
-          phone: lead.phone,
-          customerName: lead.name,
-          agentName: user?.name,
-          agentId: user?._id,
-          branch: user?.branch,
-          connected: result.connected,
-          type: 'CALL',
-          direction: 'OUTGOING',
-          notConnectedReason: result.connected ? undefined : 'DID_NOT_PICK',
-          stage: result.connected
-            ? lead.stage === 'New'
-              ? 'Connected'
-              : lead.stage
-            : 'Not Connected',
-          durationSeconds: result.connected ? result.durationSeconds : 0,
-          remark: result.connected ? 'Call completed' : 'Call not answered',
-          callLogId: stableCallLogId,
-          idempotencyKey,
-          classificationReason,
-        });
-      } catch (logErr) {
-        console.warn('[CallSession] Failed to auto-log call activity:', logErr);
-      }
+        (result as any).logId || `call-${startTime}-${lead.phone.replace(/\D/g, '').slice(-10)}`;
+      const durationSource = result.matchedLog ? 'DEVICE_CALL_LOG' : 'APP_ESTIMATE';
 
       // Invoke optional callback if the caller registered one
       try {
         session.onCallComplete?.({
           ...result,
           callLogId: stableCallLogId,
-          classificationReason,
         });
       } catch (cbErr) {
         console.warn('[CallSession] onCallComplete callback error:', cbErr);
@@ -211,14 +237,15 @@ class CallSessionManager {
               detectionMethod: 'AUTOMATIC',
               autoOpenNotConnectedSheet: !result.connected,
               callLogId: stableCallLogId,
-              idempotencyKey,
-              classificationReason,
+              clientEventId,
+              startedAt: new Date(startTime).toISOString(),
+              durationSource,
               ...(session.queue && session.queueIndex !== undefined
                 ? { queue: session.queue, queueIndex: session.queueIndex }
                 : {}),
             });
           }
-          // Also sync any incoming / missed calls in the background
+          // Sync any incoming / missed calls in the background
           incomingCallSyncService.syncIncomingCalls().catch(() => {});
         } catch (navErr) {
           console.warn('[CallSession] Navigation to Dispose screen failed:', navErr);

@@ -123,12 +123,27 @@ export class AndroidCallService extends DeviceCallService implements ICallServic
 
     // Attempt direct phone call using IntentLauncher (android.intent.action.CALL)
     try {
+      // Check for user-configured preferred SIM slot (0 for SIM 1, 1 for SIM 2)
+      let simSlot: number | null = null;
+      try {
+        const { SimPreferenceService } = require('./sim-preference.service');
+        simSlot = await SimPreferenceService.getPreferredSimSlot();
+      } catch {}
+
       // eslint-disable-next-line @typescript-eslint/no-var-requires
       const IntentLauncher = require('expo-intent-launcher');
       if (IntentLauncher && IntentLauncher.startActivityAsync) {
-        await IntentLauncher.startActivityAsync('android.intent.action.CALL', {
+        const intentParams: Record<string, unknown> = {
           data: `tel:${cleanNumber}`,
-        });
+        };
+        if (simSlot !== null) {
+          intentParams.extra = {
+            'com.android.phone.extra.slot': simSlot,
+            simSlot: simSlot,
+            simId: simSlot,
+          };
+        }
+        await IntentLauncher.startActivityAsync('android.intent.action.CALL', intentParams);
         return true;
       }
     } catch (launcherErr) {
