@@ -1,0 +1,323 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Privacy Policy - Hi Talk (Telecalling CRM)</title>
+  <meta name="description" content="Official Privacy Policy for Hi Talk Telecalling CRM application, detailing data handling, call log permissions, and security.">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --primary: #0F9D58;
+      --primary-dark: #0B7A44;
+      --primary-light: #E6F4EA;
+      --text: #1F2937;
+      --text-muted: #4B5563;
+      --bg: #F9FAFB;
+      --surface: #FFFFFF;
+      --border: #E5E7EB;
+    }
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+    body {
+      font-family: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      background-color: var(--bg);
+      color: var(--text);
+      line-height: 1.7;
+    }
+    header {
+      background: var(--surface);
+      border-bottom: 1px solid var(--border);
+      padding: 18px 24px;
+      position: sticky;
+      top: 0;
+      z-index: 10;
+    }
+    .header-inner {
+      max-width: 900px;
+      margin: 0 auto;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    .logo {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      text-decoration: none;
+      color: var(--text);
+      font-weight: 800;
+      font-size: 20px;
+    }
+    .logo-badge {
+      width: 36px;
+      height: 36px;
+      background: var(--primary);
+      border-radius: 10px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: white;
+      font-weight: bold;
+    }
+    .nav-links {
+      display: flex;
+      gap: 20px;
+    }
+    .nav-links a {
+      text-decoration: none;
+      color: var(--text-muted);
+      font-size: 14px;
+      font-weight: 500;
+      transition: color 0.2s;
+    }
+    .nav-links a:hover {
+      color: var(--primary);
+    }
+    main {
+      max-width: 860px;
+      margin: 40px auto;
+      padding: 0 24px 80px 24px;
+    }
+    .policy-card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      padding: 40px 48px;
+      box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05);
+    }
+    @media (max-width: 640px) {
+      .policy-card {
+        padding: 24px 20px;
+      }
+    }
+    .badge {
+      display: inline-block;
+      background: var(--primary-light);
+      color: var(--primary-dark);
+      font-weight: 600;
+      font-size: 13px;
+      padding: 4px 12px;
+      border-radius: 20px;
+      margin-bottom: 12px;
+    }
+    h1 {
+      font-size: 32px;
+      font-weight: 800;
+      color: #111827;
+      margin-bottom: 8px;
+      letter-spacing: -0.5px;
+    }
+    .meta {
+      color: var(--text-muted);
+      font-size: 14px;
+      margin-bottom: 32px;
+      padding-bottom: 20px;
+      border-bottom: 1px solid var(--border);
+    }
+    h2 {
+      font-size: 20px;
+      font-weight: 700;
+      color: #111827;
+      margin-top: 36px;
+      margin-bottom: 12px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    p {
+      color: var(--text-muted);
+      font-size: 15px;
+      margin-bottom: 16px;
+    }
+    ul {
+      margin: 12px 0 20px 24px;
+      color: var(--text-muted);
+      font-size: 15px;
+    }
+    li {
+      margin-bottom: 8px;
+    }
+    .highlight-box {
+      background: #F0FDF4;
+      border-left: 4px solid var(--primary);
+      padding: 16px 20px;
+      border-radius: 0 8px 8px 0;
+      margin: 20px 0;
+    }
+    .highlight-box p {
+      color: #166534;
+      margin-bottom: 0;
+      font-size: 14px;
+      font-weight: 500;
+    }
+    .permission-item {
+      background: #F9FAFB;
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 16px;
+      margin-bottom: 14px;
+    }
+    .permission-title {
+      font-weight: 700;
+      font-size: 15px;
+      color: #111827;
+      margin-bottom: 4px;
+    }
+    .permission-desc {
+      font-size: 14px;
+      color: var(--text-muted);
+      margin: 0;
+    }
+    footer {
+      border-top: 1px solid var(--border);
+      padding: 30px 24px;
+      text-align: center;
+      color: var(--text-muted);
+      font-size: 13px;
+    }
+    footer a {
+      color: var(--primary);
+      text-decoration: none;
+    }
+  </style>
+</head>
+<body>
+
+  <header>
+    <div class="header-inner">
+      <a href="/" class="logo">
+        <div class="logo-badge">📞</div>
+        <span>Hi Talk</span>
+      </a>
+      <div class="nav-links">
+        <a href="/landing">Features</a>
+        <a href="/terms">Terms</a>
+        <a href="mailto:support@hitalk.app">Support</a>
+      </div>
+    </div>
+  </header>
+
+  <main>
+    <div class="policy-card">
+      <span class="badge">Legal &amp; Privacy Compliance</span>
+      <h1>Privacy Policy</h1>
+      <div class="meta">
+        <strong>Application:</strong> Hi Talk - Telecalling CRM (Package: <code>com.teleapp.crm</code>)<br>
+        <strong>Developer:</strong> Hi Talk<br>
+        <strong>Effective Date:</strong> October 22, 2026
+      </div>
+
+      <p>
+        At <strong>Hi Talk</strong>, we are committed to protecting the privacy, confidentiality, and security of our users and enterprise customers.
+        This Privacy Policy explains how information is collected, used, processed, and safeguarded when you use our mobile application and web-based telecalling CRM services.
+      </p>
+
+      <h2>1. Overview &amp; Purpose of the Application</h2>
+      <p>
+        <strong>Hi Talk</strong> is an enterprise customer relationship management (CRM) and sales outbound telecalling tool designed exclusively for businesses, telecalling teams, and sales representatives. The application enables telecallers to manage assigned leads, perform structured telephone outreach, automatically log call metrics, and update lead disposition stages efficiently.
+      </p>
+
+      <h2>2. Sensitive Android Permissions &amp; Why We Need Them</h2>
+      <div class="highlight-box">
+        <p><strong>Prominent Disclosure:</strong> Hi Talk only accesses sensitive telephony features to fulfill its core functionality as an enterprise sales dialer and call logging tool. We never sell, rent, or distribute personal call logs or private contact information to third parties.</p>
+      </div>
+
+      <div class="permission-item">
+        <div class="permission-title">🔹 android.permission.READ_CALL_LOG</div>
+        <p class="permission-desc">
+          <strong>Purpose:</strong> As an enterprise telecalling application, Hi Talk requests access to device call logs strictly to measure call outcomes, timestamp logs, and accurately calculate the talk-time duration of phone calls made to assigned business leads. This enables automatic lead pipeline status updates (e.g., Connected, Busy, Not Lifted) and schedules automated retry callbacks without requiring tedious manual agent entry.
+        </p>
+      </div>
+
+      <div class="permission-item">
+        <div class="permission-title">🔹 android.permission.CALL_PHONE</div>
+        <p class="permission-desc">
+          <strong>Purpose:</strong> Allows telecallers to initiate phone calls to designated leads directly from the lead card interface with a single tap, eliminating manual number typing errors and accelerating outreach velocity.
+        </p>
+      </div>
+
+      <div class="permission-item">
+        <div class="permission-title">🔹 android.permission.READ_PHONE_STATE &amp; READ_PHONE_NUMBERS</div>
+        <p class="permission-desc">
+          <strong>Purpose:</strong> Used to detect telephony call state transitions (e.g., call started, call active, call disconnected) so the application can immediately trigger the post-call disposition modal and calculate accurate call durations.
+        </p>
+      </div>
+
+      <div class="permission-item">
+        <div class="permission-title">🔹 android.permission.POST_NOTIFICATIONS</div>
+        <p class="permission-desc">
+          <strong>Purpose:</strong> Used to deliver timely push notifications to agents regarding scheduled lead follow-ups, overdue callbacks, and new lead assignments made by managers.
+        </p>
+      </div>
+
+      <h2>3. Information We Collect</h2>
+      <p>In operating the Hi Talk CRM platform, we process the following types of information:</p>
+      <ul>
+        <li><strong>Account &amp; Agent Information:</strong> Telecaller name, official email address, mobile number, role (Agent, Manager, Admin), and organization affiliation provided during account registration.</li>
+        <li><strong>Lead Data:</strong> Contact details (names, phone numbers, campaign tags, notes, and pipeline stages) uploaded by authorized organization managers or admins into the CRM.</li>
+        <li><strong>Call Performance Metrics:</strong> Call timestamps, durations, disposition labels, and follow-up schedules created during agent outreach.</li>
+        <li><strong>Device Information:</strong> Device model, OS version, and network connectivity state for application diagnostics, crash prevention, and security verification.</li>
+      </ul>
+
+      <h2>4. How We Use Your Information</h2>
+      <p>We use the collected information solely for the following legitimate business purposes:</p>
+      <ul>
+        <li>To provide, maintain, and optimize CRM and telecalling operations.</li>
+        <li>To synchronize lead updates and call activity between the mobile application and desktop web dashboard in real time.</li>
+        <li>To provide managers and administrators with objective performance reports (daily calls, talk-time, conversion rates).</li>
+        <li>To enforce security controls, prevent unauthorized access, and protect system integrity.</li>
+      </ul>
+
+      <h2>5. Data Security &amp; Encryption</h2>
+      <p>
+        Security is our utmost priority. All communications between the Hi Talk mobile application, web dashboard, and backend database are strictly encrypted in transit using industry-standard <strong>Transport Layer Security (TLS 1.3 / HTTPS)</strong>. Database records are stored within protected, access-controlled virtual private server infrastructure with strict role-based authorization.
+      </p>
+
+      <h2>6. Data Sharing &amp; Third-Party Disclosure</h2>
+      <p>
+        We do <strong>NOT</strong> sell, trade, or monetize personal user or lead data. Data is only accessible to authorized personnel within your registered organization (e.g., your account Administrator or Team Manager). We may utilize trusted infrastructure providers (such as Expo EAS for application packaging and cloud hosting providers) strictly governed by confidentiality agreements.
+      </p>
+
+      <h2>7. Data Retention &amp; User Rights</h2>
+      <p>
+        Organization data is retained as long as the organization maintains an active subscription or account. Users and administrators have the right to:
+      </p>
+      <ul>
+        <li>Access, view, and export their registered CRM leads and activity logs.</li>
+        <li>Correct or update inaccurate lead and agent records.</li>
+        <li><strong>Request Account &amp; Data Deletion:</strong> Any organization or individual can request the permanent deletion of their account, leads, and call logs by contacting us directly at <a href="mailto:support@hitalk.app">support@hitalk.app</a>. Deletion requests are fulfilled within 30 business days.</li>
+      </ul>
+
+      <h2>8. Children's Privacy</h2>
+      <p>
+        Hi Talk is strictly designed for enterprise business use by working professionals and is not directed at or intended for children under the age of 18. We do not knowingly collect personal information from minors.
+      </p>
+
+      <h2>9. Changes to This Privacy Policy</h2>
+      <p>
+        We may update this Privacy Policy from time to time to reflect modifications in our features or regulatory requirements. Any updates will be published on this page with a revised effective date.
+      </p>
+
+      <h2>10. Contact Us</h2>
+      <p>
+        If you have questions, concerns, or requests regarding this Privacy Policy or our data handling practices, please contact our Data Protection Team:
+      </p>
+      <ul>
+        <li><strong>Email:</strong> <a href="mailto:support@hitalk.app">support@hitalk.app</a></li>
+        <li><strong>Application:</strong> Hi Talk</li>
+      </ul>
+    </div>
+  </main>
+
+  <footer>
+    <p>&copy; 2026 Hi Talk. All rights reserved. &bull; <a href="/terms">Terms of Service</a> &bull; <a href="/privacy">Privacy Policy</a></p>
+  </footer>
+
+</body>
+</html>

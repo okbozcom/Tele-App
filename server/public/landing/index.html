@@ -1,0 +1,515 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Hi Talk - High-Velocity Telecalling &amp; Lead Management CRM</title>
+  <meta name="description" content="Supercharge your sales team with Hi Talk - the enterprise telecalling CRM with automated call logging, smart lead queue, and real-time analytics.">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <script>
+    try {
+      if (localStorage.getItem('tele_app_auth_token')) {
+        window.location.replace('/login');
+      }
+    } catch (e) {}
+  </script>
+  <style>
+    :root {
+      --primary: #0F9D58;
+      --primary-dark: #0B7A44;
+      --primary-light: #E6F4EA;
+      --accent: #2563EB;
+      --text: #0F172A;
+      --text-muted: #475569;
+      --bg: #FAFCFB;
+      --surface: #FFFFFF;
+      --border: #E2E8F0;
+    }
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+    body {
+      font-family: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      background-color: var(--bg);
+      color: var(--text);
+      line-height: 1.6;
+      overflow-x: hidden;
+    }
+    header {
+      background: rgba(255, 255, 255, 0.92);
+      backdrop-filter: blur(12px);
+      border-bottom: 1px solid var(--border);
+      position: sticky;
+      top: 0;
+      z-index: 50;
+      padding: 16px 24px;
+    }
+    .nav-container {
+      max-width: 1180px;
+      margin: 0 auto;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      text-decoration: none;
+      color: var(--text);
+      font-weight: 800;
+      font-size: 22px;
+      letter-spacing: -0.5px;
+    }
+    .brand-icon {
+      width: 40px;
+      height: 40px;
+      background: linear-gradient(135deg, #0F9D58 0%, #0B7A44 100%);
+      border-radius: 12px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: white;
+      font-size: 20px;
+      box-shadow: 0 4px 12px rgba(15, 157, 88, 0.35);
+    }
+    .nav-menu {
+      display: flex;
+      align-items: center;
+      gap: 28px;
+    }
+    .nav-link {
+      text-decoration: none;
+      color: var(--text-muted);
+      font-size: 15px;
+      font-weight: 600;
+      transition: color 0.2s;
+    }
+    .nav-link:hover {
+      color: var(--primary);
+    }
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      padding: 11px 22px;
+      border-radius: 10px;
+      font-size: 15px;
+      font-weight: 700;
+      text-decoration: none;
+      transition: all 0.2s ease;
+      cursor: pointer;
+    }
+    .btn-primary {
+      background: var(--primary);
+      color: white;
+      box-shadow: 0 4px 14px rgba(15, 157, 88, 0.3);
+    }
+    .btn-primary:hover {
+      background: var(--primary-dark);
+      transform: translateY(-1px);
+      box-shadow: 0 6px 20px rgba(15, 157, 88, 0.4);
+    }
+    .btn-outline {
+      border: 1.5px solid var(--border);
+      color: var(--text);
+      background: white;
+    }
+    .btn-outline:hover {
+      border-color: var(--primary);
+      color: var(--primary);
+      background: var(--primary-light);
+    }
+
+    /* Hero Section */
+    .hero {
+      max-width: 1180px;
+      margin: 0 auto;
+      padding: 80px 24px 60px 24px;
+      text-align: center;
+    }
+    .pill-tag {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      background: var(--primary-light);
+      color: var(--primary-dark);
+      padding: 6px 16px;
+      border-radius: 30px;
+      font-size: 13.5px;
+      font-weight: 700;
+      margin-bottom: 24px;
+      border: 1px solid rgba(15, 157, 88, 0.2);
+    }
+    .hero h1 {
+      font-size: 56px;
+      font-weight: 800;
+      line-height: 1.15;
+      letter-spacing: -1.5px;
+      color: #0F172A;
+      max-width: 900px;
+      margin: 0 auto 24px auto;
+    }
+    .hero h1 span {
+      background: linear-gradient(135deg, #0F9D58 0%, #059669 100%);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+    }
+    .hero p {
+      font-size: 19px;
+      color: var(--text-muted);
+      max-width: 720px;
+      margin: 0 auto 36px auto;
+      line-height: 1.6;
+    }
+    .cta-group {
+      display: flex;
+      justify-content: center;
+      gap: 16px;
+      flex-wrap: wrap;
+      margin-bottom: 50px;
+    }
+
+    /* Stats Bar */
+    .stats-bar {
+      max-width: 1040px;
+      margin: 0 auto 80px auto;
+      background: white;
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      padding: 28px 40px;
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 24px;
+      box-shadow: 0 10px 30px -5px rgba(0, 0, 0, 0.04);
+    }
+    .stat-item {
+      text-align: center;
+    }
+    .stat-number {
+      font-size: 34px;
+      font-weight: 800;
+      color: var(--primary);
+      letter-spacing: -1px;
+    }
+    .stat-label {
+      font-size: 14px;
+      color: var(--text-muted);
+      font-weight: 600;
+      margin-top: 4px;
+    }
+
+    /* Features Section */
+    .section-title {
+      text-align: center;
+      max-width: 700px;
+      margin: 0 auto 50px auto;
+    }
+    .section-title h2 {
+      font-size: 36px;
+      font-weight: 800;
+      letter-spacing: -0.8px;
+      margin-bottom: 14px;
+    }
+    .section-title p {
+      color: var(--text-muted);
+      font-size: 16px;
+    }
+    .features-grid {
+      max-width: 1180px;
+      margin: 0 auto 100px auto;
+      padding: 0 24px;
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 28px;
+    }
+    .feature-card {
+      background: white;
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      padding: 32px 28px;
+      transition: transform 0.2s, box-shadow 0.2s;
+    }
+    .feature-card:hover {
+      transform: translateY(-4px);
+      box-shadow: 0 12px 28px -6px rgba(15, 157, 88, 0.12);
+      border-color: rgba(15, 157, 88, 0.3);
+    }
+    .feature-icon {
+      width: 52px;
+      height: 52px;
+      background: var(--primary-light);
+      border-radius: 14px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 26px;
+      margin-bottom: 20px;
+    }
+    .feature-card h3 {
+      font-size: 20px;
+      font-weight: 700;
+      margin-bottom: 10px;
+      color: #0F172A;
+    }
+    .feature-card p {
+      font-size: 14.5px;
+      color: var(--text-muted);
+      line-height: 1.6;
+    }
+
+    /* CTA Banner */
+    .cta-banner {
+      max-width: 1180px;
+      margin: 0 auto 100px auto;
+      padding: 0 24px;
+    }
+    .banner-inner {
+      background: linear-gradient(135deg, #0F9D58 0%, #0B7A44 100%);
+      border-radius: 24px;
+      padding: 60px 48px;
+      text-align: center;
+      color: white;
+      box-shadow: 0 20px 40px -10px rgba(15, 157, 88, 0.4);
+    }
+    .banner-inner h2 {
+      font-size: 38px;
+      font-weight: 800;
+      margin-bottom: 16px;
+      letter-spacing: -0.5px;
+    }
+    .banner-inner p {
+      font-size: 18px;
+      opacity: 0.92;
+      max-width: 600px;
+      margin: 0 auto 32px auto;
+    }
+    .btn-white {
+      background: white;
+      color: var(--primary-dark);
+      font-weight: 800;
+      font-size: 16px;
+      padding: 14px 32px;
+      border-radius: 12px;
+      box-shadow: 0 8px 20px rgba(0, 0, 0, 0.15);
+    }
+    .btn-white:hover {
+      background: #F0FDF4;
+      transform: translateY(-2px);
+    }
+
+    /* Footer */
+    footer {
+      background: #0B1320;
+      color: #94A3B8;
+      padding: 60px 24px 40px 24px;
+    }
+    .footer-container {
+      max-width: 1180px;
+      margin: 0 auto;
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      flex-wrap: wrap;
+      gap: 40px;
+      margin-bottom: 40px;
+    }
+    .footer-brand h4 {
+      color: white;
+      font-size: 20px;
+      font-weight: 800;
+      margin-bottom: 10px;
+    }
+    .footer-brand p {
+      font-size: 14px;
+      max-width: 320px;
+      line-height: 1.6;
+    }
+    .footer-links-group h5 {
+      color: white;
+      font-size: 14px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.8px;
+      margin-bottom: 16px;
+    }
+    .footer-links-group ul {
+      list-style: none;
+    }
+    .footer-links-group li {
+      margin-bottom: 10px;
+    }
+    .footer-links-group a {
+      color: #94A3B8;
+      text-decoration: none;
+      font-size: 14px;
+      transition: color 0.2s;
+    }
+    .footer-links-group a:hover {
+      color: white;
+    }
+    .footer-bottom {
+      max-width: 1180px;
+      margin: 0 auto;
+      padding-top: 24px;
+      border-top: 1px solid #1E293B;
+      text-align: center;
+      font-size: 13px;
+    }
+
+    @media (max-width: 900px) {
+      .hero h1 { font-size: 38px; }
+      .features-grid { grid-template-columns: 1fr; }
+      .stats-bar { grid-template-columns: 1fr; gap: 20px; }
+      .nav-menu { display: none; }
+    }
+  </style>
+</head>
+<body>
+
+  <!-- Navigation -->
+  <header>
+    <div class="nav-container">
+      <a href="/" class="brand">
+        <div class="brand-icon">📞</div>
+        <span>Hi Talk</span>
+      </a>
+      <div class="nav-menu">
+        <a href="#features" class="nav-link">Features</a>
+        <a href="#benefits" class="nav-link">Benefits</a>
+        <a href="/privacy" class="nav-link">Privacy Policy</a>
+        <a href="/terms" class="nav-link">Terms</a>
+        <a href="/login" class="btn btn-outline">Agent Login</a>
+        <a href="https://expo.dev/artifacts/eas/JiPDPAu3L5O8YI-v28PuuMZghZSb1U-DTXd6m4Eb_eM.apk" class="btn btn-primary">Download APK</a>
+      </div>
+    </div>
+  </header>
+
+  <!-- Hero -->
+  <section class="hero">
+    <div class="pill-tag">
+      <span>🚀 Built for Enterprise Sales &amp; Outbound Calling Teams</span>
+    </div>
+    <h1>Supercharge Your Telecalling with <span>Automated Precision</span></h1>
+    <p>
+      Hi Talk eliminates dialing errors, automates call log duration tracking, and queues priority leads so your sales reps close more deals faster.
+    </p>
+    <div class="cta-group">
+      <a href="https://expo.dev/artifacts/eas/JiPDPAu3L5O8YI-v28PuuMZghZSb1U-DTXd6m4Eb_eM.apk" class="btn btn-primary" style="font-size: 16px; padding: 14px 28px;">
+        <span>📱 Download Android App (APK)</span>
+      </a>
+      <a href="/login" class="btn btn-outline" style="font-size: 16px; padding: 14px 28px;">
+        <span>💻 Open Web CRM Portal</span>
+      </a>
+    </div>
+
+    <!-- Stats -->
+    <div class="stats-bar" id="benefits">
+      <div class="stat-item">
+        <div class="stat-number">60%</div>
+        <div class="stat-label">Faster Lead Outreach Cycle</div>
+      </div>
+      <div class="stat-item">
+        <div class="stat-number">100%</div>
+        <div class="stat-label">Automated Call Duration Sync</div>
+      </div>
+      <div class="stat-item">
+        <div class="stat-number">0 sec</div>
+        <div class="stat-label">Zero Manual Number Dialing</div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Features Grid -->
+  <section class="features-section" id="features">
+    <div class="section-title">
+      <h2>Everything Your Telecallers Need to Succeed</h2>
+      <p>Modern mobile telephony integration coupled with powerful cloud lead distribution.</p>
+    </div>
+
+    <div class="features-grid">
+      <div class="feature-card">
+        <div class="feature-icon">⚡</div>
+        <h3>One-Click Auto Dialer</h3>
+        <p>Direct lead calling with single-touch convenience. Never mistype a customer phone number again.</p>
+      </div>
+
+      <div class="feature-card">
+        <div class="feature-icon">📋</div>
+        <h3>Smart Lead Queuing</h3>
+        <p>Automated priority queues distribute campaigns fairly, keeping telecallers focused on active prospects.</p>
+      </div>
+
+      <div class="feature-card">
+        <div class="feature-icon">⏱️</div>
+        <h3>Auto Call Log Tracking</h3>
+        <p>Detects connected calls and measures precise talk time without requiring tedious manual agent entry.</p>
+      </div>
+
+      <div class="feature-card">
+        <div class="feature-icon">🔄</div>
+        <h3>Automated Retry Rules</h3>
+        <p>Unanswered, busy, or disconnected calls automatically re-queue according to customizable cadence rules.</p>
+      </div>
+
+      <div class="feature-card">
+        <div class="feature-icon">📊</div>
+        <h3>Real-Time Live Analytics</h3>
+        <p>Managers monitor team call volumes, connect rates, and conversion pipelines live from anywhere.</p>
+      </div>
+
+      <div class="feature-card">
+        <div class="feature-icon">🔒</div>
+        <h3>Bank-Grade Data Security</h3>
+        <p>End-to-end TLS encryption and strict role-based access control safeguard your business lead databases.</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- CTA Banner -->
+  <section class="cta-banner">
+    <div class="banner-inner">
+      <h2>Ready to Boost Your Team's Productivity?</h2>
+      <p>Install the Hi Talk mobile application today and start making high-velocity sales calls immediately.</p>
+      <a href="https://expo.dev/artifacts/eas/JiPDPAu3L5O8YI-v28PuuMZghZSb1U-DTXd6m4Eb_eM.apk" class="btn btn-white">
+        Download Latest Android App (.APK)
+      </a>
+    </div>
+  </section>
+
+  <!-- Footer -->
+  <footer>
+    <div class="footer-container">
+      <div class="footer-brand">
+        <h4>Hi Talk CRM</h4>
+        <p>Enterprise telecalling and outbound lead management system designed and engineered by Hi Talk.</p>
+      </div>
+      <div class="footer-links-group">
+        <h5>Quick Links</h5>
+        <ul>
+          <li><a href="/">Product Overview</a></li>
+          <li><a href="/login">Web CRM Portal</a></li>
+          <li><a href="https://expo.dev/artifacts/eas/JiPDPAu3L5O8YI-v28PuuMZghZSb1U-DTXd6m4Eb_eM.apk">Android App Download</a></li>
+        </ul>
+      </div>
+      <div class="footer-links-group">
+        <h5>Compliance &amp; Legal</h5>
+        <ul>
+          <li><a href="/privacy">Privacy Policy</a></li>
+          <li><a href="/terms">Terms of Service</a></li>
+          <li><a href="mailto:support@hitalk.app">support@hitalk.app</a></li>
+        </ul>
+      </div>
+    </div>
+    <div class="footer-bottom">
+      &copy; 2026 Hi Talk. All rights reserved. Built for professional sales &amp; telecalling operations.
+    </div>
+  </footer>
+
+</body>
+</html>
