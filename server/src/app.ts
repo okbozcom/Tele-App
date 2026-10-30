@@ -35,6 +35,15 @@ if (process.env.NODE_ENV !== 'test') {
 const publicDir = path.join(__dirname, '../public');
 app.use(express.static(publicDir));
 
+app.get('/', (_req: Request, res: Response) => {
+  res.status(200).json({
+    status: 'success',
+    message: 'Hi Talk Telecalling CRM API Server is Live & Running!',
+    health: '/api/health',
+    timestamp: new Date().toISOString(),
+  });
+});
+
 app.get('/privacy', (_req: Request, res: Response) => {
   res.sendFile(path.join(publicDir, 'privacy.html'));
 });
