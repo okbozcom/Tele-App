@@ -1,0 +1,18 @@
+services:
+  - type: web
+    name: hitalk-crm-api
+    runtime: node
+    plan: free
+    rootDir: server
+    buildCommand: npm install && npm run build
+    startCommand: npm start
+    healthCheckPath: /api/health
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: MONGODB_URI
+        value: mongodb+srv://okbozcom_db_user:doi4NfAdahtnfKK8@cluster0.37qyyu0.mongodb.net/tele_app?retryWrites=true&w=majority
+      - key: JWT_SECRET
+        value: 6b083ef7c807277bd9c418dafc0b0c2ea6ae9767efc88bc13675a34667426243
+      - key: JWT_EXPIRES_IN
+        value: 7d
