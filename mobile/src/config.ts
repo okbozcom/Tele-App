@@ -32,7 +32,7 @@ const getDefaultApiBaseUrl = (): string => {
     return 'http://10.0.2.2:5000/api';
   }
 
-  return 'https://tele-app-nvbb.onrender.com/api';
+  return 'https://hitalk.in/api';
 };
 
 export const API_BASE_URL = getDefaultApiBaseUrl();

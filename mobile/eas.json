@@ -17,7 +17,7 @@
         "simulator": false
       },
       "env": {
-        "EXPO_PUBLIC_API_URL": "https://tele-app-nvbb.onrender.com/api"
+        "EXPO_PUBLIC_API_URL": "https://hitalk.in/api"
       }
     },
     "production": {
@@ -28,7 +28,7 @@
         "simulator": false
       },
       "env": {
-        "EXPO_PUBLIC_API_URL": "https://tele-app-nvbb.onrender.com/api"
+        "EXPO_PUBLIC_API_URL": "https://hitalk.in/api"
       }
     }
   },
