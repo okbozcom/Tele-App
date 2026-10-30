@@ -28,6 +28,9 @@ import {
   PhoneCall,
   PhoneOff,
   MessageCircle,
+  MessageSquare,
+  Send,
+  Mail,
   Clock,
   Calendar,
   CalendarClock,
@@ -50,8 +53,11 @@ import {
   Ban,
   PhoneOutgoing,
   BookmarkCheck,
+  CalendarCheck2,
+  ClipboardList,
 } from 'lucide-react-native';
 
+import { CreateTaskModal } from '../components/CreateTaskModal';
 import { callService } from '../services/call.service';
 import { callSession } from '../services/callSession';
 import {
@@ -61,10 +67,12 @@ import {
   fetchCampaigns,
   fetchCampaignById,
   fetchPipeline,
+  fetchPublicSettings,
   disposeLead,
   updateLeadDetails,
+  fetchDialTarget,
 } from '../api/leadApi';
-import { RootStackParamList, Activity, Lead, CustomerTemperature, NotConnectedReason, NotConnectedReasons, User, Campaign, PipelineStage, DisposeLeadPayload } from '../types';
+import { RootStackParamList, Activity, Lead, CustomerTemperature, NotConnectedReason, NotConnectedReasons, User, Campaign, PipelineStage, DisposeLeadPayload, EngagementQuestion } from '../types';
 import { colors, borderRadius, shadows } from '../theme';
 import { CallPermissionModal } from '../components/CallPermissionModal';
 import { LeadTimeline, deduplicateActivities } from '../components/LeadTimeline';
@@ -96,29 +104,29 @@ const PIPELINE_STATES = [
 ];
 
 const NOT_CONNECTED_LABELS: Record<NotConnectedReason, string> = {
-  DID_NOT_PICK: 'Ringing / Did Not Pick',
-  BUSY: 'Line Busy',
-  USER_DISCONNECTED: 'Call Cut / Disconnected',
-  SWITCHED_OFF: 'Switched Off',
-  OUT_OF_COVERAGE: 'Out of Coverage / Not Reachable',
-  CALL_NOT_COMPLETED: 'Call Not Completed',
-  INVALID_NUMBER: 'Invalid / Wrong Number',
-  INCOMING_NOT_AVAILABLE: 'Incoming Call Not Available',
-  NUMBER_NOT_IN_USE: 'Number Not in Use',
-  OTHER: 'Other Reason',
+  DID_NOT_PICK: 'Did not pick',
+  BUSY: 'Busy in another call',
+  USER_DISCONNECTED: 'User disconnected',
+  SWITCHED_OFF: 'Switch off',
+  OUT_OF_COVERAGE: 'Out of coverage',
+  CALL_NOT_COMPLETED: 'Call not connected',
+  OTHER: 'Other reason',
+  INVALID_NUMBER: 'Incorrect/invalid number',
+  INCOMING_NOT_AVAILABLE: 'Incoming calls not available',
+  NUMBER_NOT_IN_USE: 'Number not in use',
 };
 
 const ALL_NOT_CONNECTED_REASONS: Array<{ label: string; code: NotConnectedReason; emoji: string }> = [
-  { label: 'Ringing / Did Not Pick', code: 'DID_NOT_PICK', emoji: '🔔' },
-  { label: 'Line Busy', code: 'BUSY', emoji: '⏳' },
-  { label: 'Switched Off', code: 'SWITCHED_OFF', emoji: '📴' },
-  { label: 'Out of Coverage / Unreachable', code: 'OUT_OF_COVERAGE', emoji: '📡' },
-  { label: 'Call Cut / Disconnected', code: 'USER_DISCONNECTED', emoji: '✂️' },
-  { label: 'Call Not Completed', code: 'CALL_NOT_COMPLETED', emoji: '⚠️' },
-  { label: 'Invalid / Wrong Number', code: 'INVALID_NUMBER', emoji: '📵' },
-  { label: 'Incoming Not Available', code: 'INCOMING_NOT_AVAILABLE', emoji: '🚫' },
-  { label: 'Number Not in Use', code: 'NUMBER_NOT_IN_USE', emoji: '❌' },
-  { label: 'Other Reason', code: 'OTHER', emoji: '📝' },
+  { label: 'Did not pick', code: 'DID_NOT_PICK', emoji: '🔔' },
+  { label: 'Busy in another call', code: 'BUSY', emoji: '⏳' },
+  { label: 'User disconnected', code: 'USER_DISCONNECTED', emoji: '✂️' },
+  { label: 'Switch off', code: 'SWITCHED_OFF', emoji: '📴' },
+  { label: 'Out of coverage', code: 'OUT_OF_COVERAGE', emoji: '📡' },
+  { label: 'Call not connected', code: 'CALL_NOT_COMPLETED', emoji: '⚠️' },
+  { label: 'Other reason', code: 'OTHER', emoji: '📝' },
+  { label: 'Incorrect/invalid number', code: 'INVALID_NUMBER', emoji: '📵' },
+  { label: 'Incoming calls not available', code: 'INCOMING_NOT_AVAILABLE', emoji: '🚫' },
+  { label: 'Number not in use', code: 'NUMBER_NOT_IN_USE', emoji: '❌' },
 ];
 
 const QUICK_NOT_CONNECTED_PRESETS: Array<{
@@ -126,16 +134,16 @@ const QUICK_NOT_CONNECTED_PRESETS: Array<{
   label: string;
   emoji: string;
 }> = [
-  { reason: 'DID_NOT_PICK', label: 'No Answer', emoji: '🔔' },
-  { reason: 'BUSY', label: 'Line Busy', emoji: '⏳' },
-  { reason: 'SWITCHED_OFF', label: 'Switched Off', emoji: '📴' },
-  { reason: 'OUT_OF_COVERAGE', label: 'Unreachable', emoji: '📡' },
-  { reason: 'USER_DISCONNECTED', label: 'Call Cut', emoji: '✂️' },
-  { reason: 'CALL_NOT_COMPLETED', label: 'Not Completed', emoji: '⚠️' },
-  { reason: 'INVALID_NUMBER', label: 'Wrong Number', emoji: '📵' },
-  { reason: 'INCOMING_NOT_AVAILABLE', label: 'No Incoming', emoji: '🚫' },
-  { reason: 'NUMBER_NOT_IN_USE', label: 'Not in Use', emoji: '❌' },
-  { reason: 'OTHER', label: 'Other', emoji: '📝' },
+  { reason: 'DID_NOT_PICK', label: 'Did not pick', emoji: '🔔' },
+  { reason: 'BUSY', label: 'Busy in another call', emoji: '⏳' },
+  { reason: 'USER_DISCONNECTED', label: 'User disconnected', emoji: '✂️' },
+  { reason: 'SWITCHED_OFF', label: 'Switch off', emoji: '📴' },
+  { reason: 'OUT_OF_COVERAGE', label: 'Out of coverage', emoji: '📡' },
+  { reason: 'CALL_NOT_COMPLETED', label: 'Call not connected', emoji: '⚠️' },
+  { reason: 'OTHER', label: 'Other reason', emoji: '📝' },
+  { reason: 'INVALID_NUMBER', label: 'Incorrect/invalid number', emoji: '📵' },
+  { reason: 'INCOMING_NOT_AVAILABLE', label: 'Incoming calls not available', emoji: '🚫' },
+  { reason: 'NUMBER_NOT_IN_USE', label: 'Number not in use', emoji: '❌' },
 ];
 
 const LOST_REASONS = [
@@ -172,7 +180,6 @@ const PRIMARY_OUTCOMES = [
     activeColor: '#DC2626',
     activeBg: '#FEF2F2',
     activeBorder: '#FCA5A5',
-    tag: 'Cold' as const,
   },
   {
     stage: 'FOLLOW UP',
@@ -182,7 +189,6 @@ const PRIMARY_OUTCOMES = [
     activeColor: '#D97706',
     activeBg: '#FFFBEB',
     activeBorder: '#FCD34D',
-    tag: 'Warm' as const,
   },
   {
     stage: 'INTERESTED',
@@ -192,7 +198,6 @@ const PRIMARY_OUTCOMES = [
     activeColor: '#059669',
     activeBg: '#ECFDF5',
     activeBorder: '#86EFAC',
-    tag: 'Hot' as const,
   },
   {
     stage: 'NOT INTERESTED',
@@ -202,7 +207,6 @@ const PRIMARY_OUTCOMES = [
     activeColor: '#64748B',
     activeBg: '#F1F5F9',
     activeBorder: '#CBD5E1',
-    tag: 'Cold' as const,
   },
 ];
 
@@ -265,17 +269,78 @@ export const LeadDetailScreen: React.FC = () => {
   const [selectedNotConnectedReason, setSelectedNotConnectedReason] = useState<NotConnectedReason>('DID_NOT_PICK');
   const [showNotConnectedReasonPicker, setShowNotConnectedReasonPicker] = useState<boolean>(false);
 
-  // Select Tag Radio Buttons: Hot, Cold, Warm
-  const [selectedTag, setSelectedTag] = useState<'Hot' | 'Cold' | 'Warm'>(
-    lead.tag?.toUpperCase() === 'HOT'
-      ? 'Hot'
-      : lead.tag?.toUpperCase() === 'WARM'
-      ? 'Warm'
-      : 'Cold',
-  );
+  // Dynamic Pipeline, Campaign & Public Settings Queries
+  const { data: campaignDetailData } = useQuery({
+    queryKey: ['campaignDetail', currentLead.campaignId],
+    queryFn: () => fetchCampaignById(currentLead.campaignId),
+    enabled: !!currentLead.campaignId,
+  });
+  const currentCampaign = campaignDetailData?.campaign;
+
+  const { data: pipelineData } = useQuery({
+    queryKey: ['pipelineDetail', currentCampaign?.pipelineId],
+    queryFn: () => fetchPipeline(currentCampaign!.pipelineId),
+    enabled: !!currentCampaign?.pipelineId,
+  });
+  const currentPipeline = pipelineData?.pipeline;
+
+  const { data: publicSettingsData } = useQuery({
+    queryKey: ['publicSettings'],
+    queryFn: fetchPublicSettings,
+  });
+  const publicSettings = publicSettingsData?.settings;
+
+  // Derive dynamic pipeline stages with order
+  const availableStages = useMemo(() => {
+    if (currentPipeline?.stages && currentPipeline.stages.length > 0) {
+      return [...currentPipeline.stages].sort((a, b) => (a.order || 0) - (b.order || 0));
+    }
+    return PIPELINE_STATES.map((name, idx) => ({
+      name,
+      isClosed: name === 'CONVERTED' || name === 'LOST' || name === 'NOT INTERESTED',
+      tags: [] as string[],
+      order: idx,
+    }));
+  }, [currentPipeline]);
+
+  // Current stage definition & tags
+  const activeStageConfig = useMemo(() => {
+    return availableStages.find(
+      (s) => s.name.trim().toLowerCase() === selectedState.trim().toLowerCase(),
+    );
+  }, [availableStages, selectedState]);
+
+  const availableTags = useMemo(() => {
+    return activeStageConfig?.tags || [];
+  }, [activeStageConfig]);
+
+  const isSelectedStageClosing = useMemo(() => {
+    if (activeStageConfig?.isClosed) return true;
+    const s = selectedState.trim().toLowerCase();
+    return (
+      s === 'converted' ||
+      s === 'lost' ||
+      s === 'not interested' ||
+      s === 'closed' ||
+      s === 'dnd' ||
+      s === 'do not call' ||
+      s === 'junk' ||
+      s === 'dropped' ||
+      isLeadLostOrSuppressed({ stage: selectedState })
+    );
+  }, [activeStageConfig, selectedState]);
+
+  const engagementQuestions = useMemo(() => {
+    return currentCampaign?.engagementForm || [];
+  }, [currentCampaign]);
+
+  // Selected Tag (Dynamic pipeline tag, not hardcoded Hot/Cold/Warm)
+  const [selectedTag, setSelectedTag] = useState<string | null>(lead.tag || null);
+  const [customTagInput, setCustomTagInput] = useState<string>('');
+  const [engagementAnswers, setEngagementAnswers] = useState<Record<string, any>>({});
 
   // Checkboxes for "Select next action*"
-  const [actionNextFollowUp, setActionNextFollowUp] = useState<boolean>(true);
+  const [actionNextFollowUp, setActionNextFollowUp] = useState<boolean>(!isSelectedStageClosing);
   const defaultFollowUpDate = useMemo(() => {
     if (lead.nextFollowUpAt) return lead.nextFollowUpAt;
     return getDefaultFollowUpIso(2);
@@ -302,8 +367,49 @@ export const LeadDetailScreen: React.FC = () => {
   const [showHistoryModal, setShowHistoryModal] = useState<boolean>(false);
   const [showEditContactModal, setShowEditContactModal] = useState<boolean>(false);
   const [showTagManagerModal, setShowTagManagerModal] = useState<boolean>(false);
+  const [showCreateTaskModal, setShowCreateTaskModal] = useState<boolean>(false);
   const [editName, setEditName] = useState<string>(lead.name);
   const [editPhone, setEditPhone] = useState<string>(lead.phone);
+
+  // Quick Communication Action Handlers (WhatsApp, SMS, Email)
+  const handleOpenWhatsApp = async () => {
+    let targetPhone = currentLead.phone;
+    if (targetPhone.includes('*') && currentLead._id) {
+      try {
+        const res = await fetchDialTarget(currentLead._id);
+        if (res?.dialNumber) targetPhone = res.dialNumber;
+      } catch (err) {
+        console.warn('Failed to resolve dial target for WhatsApp:', err);
+      }
+    }
+    const url = getWhatsAppUrl(
+      targetPhone,
+      `Hello ${currentLead.name || ''}, this is regarding your inquiry with Hi Talk.`,
+    );
+    Linking.openURL(url).catch(() => toast.error('Could not open WhatsApp'));
+  };
+
+  const handleOpenSMS = async () => {
+    let targetPhone = currentLead.phone;
+    if (targetPhone.includes('*') && currentLead._id) {
+      try {
+        const res = await fetchDialTarget(currentLead._id);
+        if (res?.dialNumber) targetPhone = res.dialNumber;
+      } catch (err) {
+        console.warn('Failed to resolve dial target for SMS:', err);
+      }
+    }
+    const clean = targetPhone.replace(/[^\d+]/g, '');
+    Linking.openURL(`sms:${clean}`).catch(() => toast.error('Could not open SMS app'));
+  };
+
+  const handleOpenEmail = () => {
+    if (!currentLead.email) {
+      toast.info('No email address provided for this lead');
+      return;
+    }
+    Linking.openURL(`mailto:${currentLead.email}`).catch(() => toast.error('Could not open Email app'));
+  };
 
   // Query: Assignable agents
   const { data: usersData } = useQuery({
@@ -358,21 +464,36 @@ export const LeadDetailScreen: React.FC = () => {
     setActionNextFollowUp(true);
   };
 
-  // 1-Tap Quick Outcome Selection (NeoDove Standard)
-  const handleSelectOutcome = (stage: string, defaultTag?: 'Hot' | 'Cold' | 'Warm') => {
-    setSelectedState(stage);
-    if (stage === 'NOT CONNECTED') {
+  // 1-Tap Quick Outcome Selection (NeoDove Pipeline Standard)
+  const handleSelectOutcome = (stageName: string, defaultTag?: string) => {
+    setSelectedState(stageName);
+    const foundStage = availableStages.find(
+      (s) => s.name.trim().toLowerCase() === stageName.trim().toLowerCase(),
+    );
+    const isClosing =
+      Boolean(foundStage?.isClosed) ||
+      stageName === 'CONVERTED' ||
+      stageName === 'LOST' ||
+      stageName === 'NOT INTERESTED' ||
+      isLeadLostOrSuppressed({ stage: stageName });
+
+    if (isClosing) {
+      setActionNextFollowUp(false);
+    } else {
+      setActionNextFollowUp(true);
+    }
+
+    if (stageName === 'NOT CONNECTED') {
       if (!selectedNotConnectedReason) setSelectedNotConnectedReason('DID_NOT_PICK');
       setShowNotConnectedModal(true);
-    } else if (stage === 'INTERESTED') {
-      setSelectedTag(defaultTag || 'Hot');
-      setActionNextFollowUp(true);
-    } else if (stage === 'FOLLOW UP') {
-      setSelectedTag(defaultTag || 'Warm');
-      setActionNextFollowUp(true);
-    } else if (stage === 'NOT INTERESTED') {
-      setSelectedTag('Cold');
-      setActionNextFollowUp(false);
+    } else {
+      if (defaultTag) {
+        setSelectedTag(defaultTag);
+      } else if (foundStage && foundStage.tags && foundStage.tags.length > 0) {
+        if (!selectedTag || !foundStage.tags.includes(selectedTag)) {
+          setSelectedTag(foundStage.tags[0]);
+        }
+      }
     }
   };
 
@@ -380,13 +501,12 @@ export const LeadDetailScreen: React.FC = () => {
   const handleQuickNotConnectedSubmit = (reason: NotConnectedReason) => {
     setSelectedNotConnectedReason(reason);
     setSelectedState('NOT CONNECTED');
-    setSelectedTag('Cold');
     setShowNotConnectedModal(false);
 
     disposeMutation.mutate({
       stage: 'NOT CONNECTED',
       notConnectedReason: reason,
-      tag: 'Cold',
+      tag: selectedTag || undefined,
       remark: `Call Not Connected: ${NOT_CONNECTED_LABELS[reason] || reason}`,
     });
   };
@@ -505,33 +625,62 @@ export const LeadDetailScreen: React.FC = () => {
     mutationFn: async (override?: {
       stage?: string;
       notConnectedReason?: NotConnectedReason;
-      tag?: 'Hot' | 'Cold' | 'Warm';
+      tag?: string | null;
       remark?: string;
     }) => {
       const activeStage = override?.stage || selectedState;
-      if (activeStage === 'FOLLOW UP' && (!actionNextFollowUp || !followUpDate)) {
-        throw new Error('Please select a scheduled date and time for this follow-up.');
-      }
+      const foundStage = availableStages.find(
+        (s) => s.name.trim().toLowerCase() === activeStage.trim().toLowerCase(),
+      );
+      const isClosing =
+        Boolean(foundStage?.isClosed) ||
+        activeStage === 'CONVERTED' ||
+        activeStage === 'LOST' ||
+        activeStage === 'NOT INTERESTED' ||
+        isLeadLostOrSuppressed({ stage: activeStage });
 
       const isConnected =
         activeStage !== 'NOT CONNECTED' &&
         activeStage !== 'SWITCHED OFF' &&
         activeStage !== 'BUSY';
 
+      // Mandatory follow-up check:
+      // If connected and non-closing stage, follow-up is required unless allowDisposeWithoutFollowUp setting is true
+      if (isConnected && !isClosing && !publicSettings?.allowDisposeWithoutFollowUp) {
+        if (!actionNextFollowUp || !followUpDate) {
+          throw new Error('Please select a scheduled date and time for this follow-up.');
+        }
+      }
+
+      // Mandatory engagement form questions validation
+      for (const q of engagementQuestions) {
+        if (q.required) {
+          const val = engagementAnswers[q.id];
+          if (
+            val === undefined ||
+            val === null ||
+            val === '' ||
+            (Array.isArray(val) && val.length === 0)
+          ) {
+            throw new Error(`Please answer the required question: "${q.label}"`);
+          }
+        }
+      }
+
+      const formattedAnswers = Object.entries(engagementAnswers)
+        .filter(([_, val]) => val !== undefined && val !== null && val !== '')
+        .map(([questionId, value]) => ({ questionId, value }));
+
       const notConnectedReason: NotConnectedReason | undefined = !isConnected
         ? override?.notConnectedReason || selectedNotConnectedReason
         : undefined;
-
-      const isClosing =
-        isLeadLostOrSuppressed({ stage: activeStage }) ||
-        activeStage === 'CONVERTED';
 
       const finalFollowUp =
         !isClosing && actionNextFollowUp
           ? adjustForCallingHours(new Date(followUpDate || getDefaultFollowUpIso(2))).toISOString()
           : null;
 
-      const activeTag = override?.tag || selectedTag;
+      const activeTag = override?.tag !== undefined ? override.tag : selectedTag;
       const activeRemark =
         override?.remark ||
         remarks.trim() ||
@@ -545,18 +694,28 @@ export const LeadDetailScreen: React.FC = () => {
         callAttempt: isCallAttempt,
         notConnectedReason,
         stage: activeStage,
-        tag: activeTag.toUpperCase() as any,
+        tag: activeTag ? (activeTag.toUpperCase() as any) : undefined,
         followUpAt: finalFollowUp,
         remark: activeRemark,
         durationSeconds: isConnected ? callDurationSeconds : 0,
         reassignToUserId: actionReassign && selectedReassignUserId ? selectedReassignUserId : undefined,
         copyToCampaignId: actionCopyCampaign && selectedCopyCampaignId ? selectedCopyCampaignId : undefined,
         direction: routeParams.direction || 'OUTGOING',
+        clientEventId: routeParams.clientEventId || null,
+        startedAt: routeParams.startedAt || null,
+        durationSource: routeParams.durationSource || 'APP_ESTIMATE',
+        dispositionMismatch:
+          Boolean(routeParams.dispositionMismatch) ||
+          (!isConnected && callDurationSeconds >= 20) ||
+          (isConnected && isCallAttempt && callDurationSeconds === 0),
+        noAttempt: !isCallAttempt,
+        clientTimestamp: routeParams.startedAt || new Date().toISOString(),
         callLogId: routeParams.callLogId,
         idempotencyKey: routeParams.idempotencyKey || (`disp_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`),
         classificationReason: routeParams.classificationReason,
         dealAmount: dealAmount.trim() ? parseFloat(dealAmount) : undefined,
         currency: currency || 'INR',
+        answers: formattedAnswers,
       };
 
       try {
@@ -588,12 +747,13 @@ export const LeadDetailScreen: React.FC = () => {
               classificationReason: payload.classificationReason,
               dealAmount: payload.dealAmount,
               currency: payload.currency,
+              answers: formattedAnswers,
               createdAt: new Date().toISOString(),
             },
             lead: {
               ...currentLead,
               stage: activeStage,
-              tag: activeTag.toUpperCase() as any,
+              tag: activeTag ? (activeTag.toUpperCase() as any) : undefined,
               attemptCount: (currentLead.attemptCount || 0) + 1,
               status: isClosing ? 'CLOSED' : 'OPEN',
               dealAmount: payload.dealAmount,
@@ -614,7 +774,7 @@ export const LeadDetailScreen: React.FC = () => {
       const notConnectedReason: NotConnectedReason | undefined = !isConnected
         ? override?.notConnectedReason || selectedNotConnectedReason
         : undefined;
-      const activeTag = override?.tag || selectedTag;
+      const activeTag = override?.tag !== undefined ? override.tag : selectedTag;
       const activeRemark =
         override?.remark ||
         remarks.trim() ||
@@ -637,7 +797,7 @@ export const LeadDetailScreen: React.FC = () => {
         const updatedCurrent: Lead = {
           ...currentLead,
           stage: activeStage,
-          tag: activeTag.toUpperCase(),
+          tag: activeTag ? (activeTag.toUpperCase() as any) : undefined,
           attemptCount: (currentLead.attemptCount || 0) + 1,
           lastContactedAt: new Date().toISOString(),
           nextFollowUpAt: finalFollowUp,
@@ -648,25 +808,32 @@ export const LeadDetailScreen: React.FC = () => {
         };
       });
 
-      queryClient.setQueryData(['myLeadsList'], (old: any) => {
+      const updateLeadListCache = (old: any) => {
         if (!old?.leads) return old;
         const remaining = old.leads.filter((l: Lead) => l._id !== currentLead._id);
         const updatedCurrent: Lead = {
           ...currentLead,
           stage: activeStage,
-          tag: activeTag.toUpperCase(),
+          tag: activeTag ? (activeTag.toUpperCase() as any) : undefined,
           attemptCount: (currentLead.attemptCount || 0) + 1,
           lastContactedAt: new Date().toISOString(),
           nextFollowUpAt: finalFollowUp,
         };
         return {
           ...old,
-          leads: isClosing ? remaining : [...remaining, updatedCurrent],
+          leads: isClosing ? remaining : [updatedCurrent, ...remaining],
         };
-      });
+      };
+
+      if (user?._id) {
+        queryClient.setQueryData(['myLeadsList', user._id], updateLeadListCache);
+      }
+      queryClient.setQueryData(['myLeadsList'], updateLeadListCache);
+      queryClient.setQueriesData({ queryKey: ['myLeadsList'] }, updateLeadListCache);
 
       queryClient.invalidateQueries({ queryKey: ['myLeads'] });
       queryClient.invalidateQueries({ queryKey: ['myLeadsList'] });
+      queryClient.invalidateQueries({ queryKey: ['myLeadsCounts'] });
       queryClient.invalidateQueries({ queryKey: ['homeDashboard'] });
       queryClient.invalidateQueries({ queryKey: ['homeMyLeadsQueue'] });
       queryClient.invalidateQueries({ queryKey: ['leadHistory', currentLead._id] });
@@ -919,6 +1086,38 @@ export const LeadDetailScreen: React.FC = () => {
                 </Text>
               </View>
 
+              {/* Quick Communication Action Strip (WhatsApp / SMS / Email) */}
+              <View style={styles.commStrip}>
+                <TouchableOpacity
+                  style={[styles.commBtn, styles.commBtnWhatsApp]}
+                  onPress={handleOpenWhatsApp}
+                  activeOpacity={0.8}
+                >
+                  <MessageSquare size={13} color="#15803D" strokeWidth={2.5} />
+                  <Text style={styles.commBtnTextWhatsApp}>WhatsApp</Text>
+                </TouchableOpacity>
+
+                <TouchableOpacity
+                  style={[styles.commBtn, styles.commBtnSMS]}
+                  onPress={handleOpenSMS}
+                  activeOpacity={0.8}
+                >
+                  <Send size={13} color="#1D4ED8" strokeWidth={2.5} />
+                  <Text style={styles.commBtnTextSMS}>SMS</Text>
+                </TouchableOpacity>
+
+                {currentLead.email ? (
+                  <TouchableOpacity
+                    style={[styles.commBtn, styles.commBtnEmail]}
+                    onPress={handleOpenEmail}
+                    activeOpacity={0.8}
+                  >
+                    <Mail size={13} color="#6D28D9" strokeWidth={2.5} />
+                    <Text style={styles.commBtnTextEmail}>Email</Text>
+                  </TouchableOpacity>
+                ) : null}
+              </View>
+
               {/* Tag to Manager / Admin Button */}
               <TouchableOpacity
                 style={styles.leadInfoTagBtn}
@@ -927,6 +1126,16 @@ export const LeadDetailScreen: React.FC = () => {
               >
                 <BookmarkCheck size={14} color="#D97706" strokeWidth={2.5} />
                 <Text style={styles.leadInfoTagBtnText}>Tag Lead to Branch Manager / Admin</Text>
+              </TouchableOpacity>
+
+              {/* Add Task Button */}
+              <TouchableOpacity
+                style={[styles.leadInfoTagBtn, { backgroundColor: '#ECFDF5', borderColor: '#A7F3D0', marginTop: 8 }]}
+                onPress={() => setShowCreateTaskModal(true)}
+                activeOpacity={0.8}
+              >
+                <CalendarCheck2 size={14} color="#059669" strokeWidth={2.5} />
+                <Text style={[styles.leadInfoTagBtnText, { color: '#047857' }]}>Add Task / Reminder for Lead</Text>
               </TouchableOpacity>
             </View>
 
@@ -1067,6 +1276,38 @@ export const LeadDetailScreen: React.FC = () => {
               </View>
             </View>
 
+            {/* Quick Communication Action Strip (WhatsApp / SMS / Email) */}
+            <View style={[styles.commStrip, { marginTop: 0, marginBottom: 12 }]}>
+              <TouchableOpacity
+                style={[styles.commBtn, styles.commBtnWhatsApp]}
+                onPress={handleOpenWhatsApp}
+                activeOpacity={0.8}
+              >
+                <MessageSquare size={13} color="#15803D" strokeWidth={2.5} />
+                <Text style={styles.commBtnTextWhatsApp}>WhatsApp</Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={[styles.commBtn, styles.commBtnSMS]}
+                onPress={handleOpenSMS}
+                activeOpacity={0.8}
+              >
+                <Send size={13} color="#1D4ED8" strokeWidth={2.5} />
+                <Text style={styles.commBtnTextSMS}>SMS</Text>
+              </TouchableOpacity>
+
+              {currentLead.email ? (
+                <TouchableOpacity
+                  style={[styles.commBtn, styles.commBtnEmail]}
+                  onPress={handleOpenEmail}
+                  activeOpacity={0.8}
+                >
+                  <Mail size={13} color="#6D28D9" strokeWidth={2.5} />
+                  <Text style={styles.commBtnTextEmail}>Email</Text>
+                </TouchableOpacity>
+              ) : null}
+            </View>
+
             {/* NeoDove-Grade Post-Call Feedback Banner */}
             {isCallAttempt && (
               <View
@@ -1117,7 +1358,7 @@ export const LeadDetailScreen: React.FC = () => {
                           borderWidth: 1.5,
                         },
                       ]}
-                      onPress={() => handleSelectOutcome(item.stage, item.tag)}
+                      onPress={() => handleSelectOutcome(item.stage)}
                       activeOpacity={0.7}
                     >
                       <View style={styles.outcomeCardTop}>
@@ -1186,32 +1427,73 @@ export const LeadDetailScreen: React.FC = () => {
               </View>
             )}
 
-            {/* 2. Select Tag* */}
+            {/* 2. Select Tag (Dynamic pipeline tags) */}
             <View style={styles.fieldSection}>
-              <Text style={styles.fieldLabel}>
-                Select Tag<Text style={styles.asterisk}>*</Text>
-              </Text>
-              <View style={styles.radioGroup}>
-                {(['Hot', 'Cold', 'Warm'] as const).map((tag) => {
-                  const isSelected = selectedTag === tag;
-                  const tagColor = tag === 'Hot' ? '#DC2626' : tag === 'Warm' ? '#D97706' : '#2563EB';
-                  return (
-                    <TouchableOpacity
-                      key={tag}
-                      style={styles.radioRow}
-                      onPress={() => setSelectedTag(tag)}
-                      activeOpacity={0.7}
-                    >
-                      <View style={[styles.radioCircle, isSelected && { borderColor: tagColor }]}>
-                        {isSelected && <View style={[styles.radioDot, { backgroundColor: tagColor }]} />}
-                      </View>
-                      <Text style={[styles.radioText, isSelected && { color: tagColor, fontWeight: '500' }]}>
-                        {tag}
-                      </Text>
-                    </TouchableOpacity>
-                  );
-                })}
+              <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
+                <Text style={[styles.fieldLabel, { marginBottom: 0 }]}>
+                  Select Tag {availableTags.length > 0 && <Text style={styles.asterisk}>*</Text>}
+                </Text>
+                {selectedTag && (
+                  <TouchableOpacity onPress={() => setSelectedTag(null)}>
+                    <Text style={{ fontSize: 12, color: '#DC2626', fontWeight: '500' }}>Clear tag</Text>
+                  </TouchableOpacity>
+                )}
               </View>
+
+              {availableTags.length > 0 ? (
+                <View style={styles.tagChipsRow}>
+                  {availableTags.map((tag) => {
+                    const isSelected = selectedTag?.toLowerCase() === tag.toLowerCase();
+                    return (
+                      <TouchableOpacity
+                        key={tag}
+                        style={[styles.tagChip, isSelected && styles.tagChipSelected]}
+                        onPress={() => setSelectedTag(isSelected ? null : tag)}
+                        activeOpacity={0.7}
+                      >
+                        {isSelected && <Check size={12} color="#FFFFFF" strokeWidth={3} />}
+                        <Text style={[styles.tagChipText, isSelected && styles.tagChipTextSelected]}>
+                          {tag}
+                        </Text>
+                      </TouchableOpacity>
+                    );
+                  })}
+                </View>
+              ) : (
+                <View style={{ gap: 8 }}>
+                  {selectedTag ? (
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                      <View style={[styles.tagChip, styles.tagChipSelected]}>
+                        <Text style={styles.tagChipTextSelected}>{selectedTag}</Text>
+                      </View>
+                      <TouchableOpacity onPress={() => setSelectedTag(null)}>
+                        <X size={16} color="#64748B" />
+                      </TouchableOpacity>
+                    </View>
+                  ) : (
+                    <View style={styles.customTagRow}>
+                      <TextInput
+                        style={styles.customTagInput}
+                        value={customTagInput}
+                        onChangeText={setCustomTagInput}
+                        placeholder="Add tag (optional)"
+                        placeholderTextColor="#94A3B8"
+                      />
+                      <TouchableOpacity
+                        style={styles.addTagBtn}
+                        onPress={() => {
+                          if (customTagInput.trim()) {
+                            setSelectedTag(customTagInput.trim());
+                            setCustomTagInput('');
+                          }
+                        }}
+                      >
+                        <Text style={styles.addTagBtnText}>Apply</Text>
+                      </TouchableOpacity>
+                    </View>
+                  )}
+                </View>
+              )}
             </View>
 
             {/* 3. Select next action* */}
@@ -1221,53 +1503,63 @@ export const LeadDetailScreen: React.FC = () => {
               </Text>
 
               {/* Action 1: Next follow up date? */}
-              <View style={styles.actionBlock}>
-                <TouchableOpacity
-                  style={styles.checkboxRow}
-                  onPress={() => setActionNextFollowUp(!actionNextFollowUp)}
-                  activeOpacity={0.7}
-                >
-                  <View style={[styles.checkboxBox, actionNextFollowUp && styles.checkboxBoxChecked]}>
-                    {actionNextFollowUp && <Check size={11} color="#0F9D58" strokeWidth={3} />}
-                  </View>
-                  <Text style={styles.checkboxLabel}>Next follow up date?</Text>
-                </TouchableOpacity>
-
-                {actionNextFollowUp && (
-                  <View style={{ gap: 6 }}>
-                    <TouchableOpacity
-                      style={styles.dropdownBoxSub}
-                      onPress={() => setShowDatePickerModal(true)}
-                      activeOpacity={0.7}
-                    >
-                      <Text style={[styles.dropdownValueText, !followUpDate && styles.placeholderText]}>
-                        {followUpDate ? formatDisplayDateTime(followUpDate) : 'Select date & time'}
-                      </Text>
-                      <Text style={styles.dropdownCaret}>▼</Text>
-                    </TouchableOpacity>
-
-                    {/* Quick follow up presets */}
-                    <View style={styles.quickReasonRow}>
-                      {[
-                        { label: '+1 Hr', hours: 1 },
-                        { label: '+2 Hrs', hours: 2 },
-                        { label: 'Tomorrow 10 AM', hours: 24, hour: 10 },
-                        { label: 'Tomorrow 3 PM', hours: 24, hour: 15 },
-                      ].map((preset) => (
-                        <TouchableOpacity
-                          key={preset.label}
-                          style={styles.reasonChip}
-                          onPress={() => setQuickFollowUp(preset.hours, preset.hour)}
-                          activeOpacity={0.7}
-                        >
-                          <Clock size={11} color="#4B5563" />
-                          <Text style={styles.reasonChipText}>{preset.label}</Text>
-                        </TouchableOpacity>
-                      ))}
+              {isSelectedStageClosing ? (
+                <View style={styles.closingStageNotice}>
+                  <CheckCircle2 size={16} color="#059669" />
+                  <Text style={styles.closingStageNoticeText}>
+                    "{selectedState}" is a closing stage · No future follow-up needed.
+                  </Text>
+                </View>
+              ) : (
+                <View style={styles.actionBlock}>
+                  <TouchableOpacity
+                    style={styles.checkboxRow}
+                    onPress={() => setActionNextFollowUp(!actionNextFollowUp)}
+                    activeOpacity={0.7}
+                  >
+                    <View style={[styles.checkboxBox, actionNextFollowUp && styles.checkboxBoxChecked]}>
+                      {actionNextFollowUp && <Check size={11} color="#0F9D58" strokeWidth={3} />}
                     </View>
-                  </View>
-                )}
-              </View>
+                    <Text style={styles.checkboxLabel}>Next follow up date?</Text>
+                  </TouchableOpacity>
+
+                  {actionNextFollowUp && (
+                    <View style={{ gap: 6 }}>
+                      <TouchableOpacity
+                        style={styles.dropdownBoxSub}
+                        onPress={() => setShowDatePickerModal(true)}
+                        activeOpacity={0.7}
+                      >
+                        <Text style={[styles.dropdownValueText, !followUpDate && styles.placeholderText]}>
+                          {followUpDate ? formatDisplayDateTime(followUpDate) : 'Select date & time'}
+                        </Text>
+                        <Text style={styles.dropdownCaret}>▼</Text>
+                      </TouchableOpacity>
+
+                      {/* Quick follow up presets */}
+                      <View style={styles.quickReasonRow}>
+                        {[
+                          { label: '+1 Hr', hours: 1 },
+                          { label: '+2 Hrs', hours: 2 },
+                          { label: 'Tomorrow 10 AM', hours: 24, hour: 10 },
+                          { label: 'Tomorrow 3 PM', hours: 24, hour: 15 },
+                          { label: 'In 3 Days', hours: 72, hour: 11 },
+                        ].map((preset) => (
+                          <TouchableOpacity
+                            key={preset.label}
+                            style={styles.reasonChip}
+                            onPress={() => setQuickFollowUp(preset.hours, preset.hour)}
+                            activeOpacity={0.7}
+                          >
+                            <Clock size={11} color="#4B5563" />
+                            <Text style={styles.reasonChipText}>{preset.label}</Text>
+                          </TouchableOpacity>
+                        ))}
+                      </View>
+                    </View>
+                  )}
+                </View>
+              )}
 
               {/* Action 2: Re-assign this lead to other user? */}
               <View style={styles.actionBlock}>
@@ -1379,6 +1671,166 @@ export const LeadDetailScreen: React.FC = () => {
                 />
               </View>
             </View>
+
+            {/* Engagement Form Questions (NeoDove Runtime Renderer) */}
+            {engagementQuestions.length > 0 && (
+              <View style={styles.fieldSection}>
+                <View style={styles.engagementHeader}>
+                  <ClipboardList size={16} color="#4F46E5" />
+                  <Text style={[styles.fieldLabel, { marginBottom: 0, color: '#1E293B', fontWeight: '700' }]}>
+                    Engagement Questions ({engagementQuestions.length})
+                  </Text>
+                </View>
+
+                <View style={styles.engagementFormContainer}>
+                  {engagementQuestions.map((q) => {
+                    const value = engagementAnswers[q.id];
+                    return (
+                      <View key={q.id} style={styles.questionBlock}>
+                        <Text style={styles.questionLabel}>
+                          {q.label}
+                          {q.required && <Text style={styles.asterisk}> *</Text>}
+                        </Text>
+
+                        {/* TEXT / SHORT_ANSWER */}
+                        {(q.type === 'TEXT' || q.type === 'SHORT_ANSWER') && (
+                          <TextInput
+                            style={styles.textInput}
+                            value={String(value || '')}
+                            onChangeText={(text) =>
+                              setEngagementAnswers((prev) => ({ ...prev, [q.id]: text }))
+                            }
+                            placeholder="Enter answer..."
+                            placeholderTextColor="#94A3B8"
+                          />
+                        )}
+
+                        {/* LONG_ANSWER */}
+                        {q.type === 'LONG_ANSWER' && (
+                          <TextInput
+                            style={[styles.textInput, { height: 70, textAlignVertical: 'top' }]}
+                            value={String(value || '')}
+                            onChangeText={(text) =>
+                              setEngagementAnswers((prev) => ({ ...prev, [q.id]: text }))
+                            }
+                            placeholder="Enter notes..."
+                            placeholderTextColor="#94A3B8"
+                            multiline
+                          />
+                        )}
+
+                        {/* NUMBER */}
+                        {q.type === 'NUMBER' && (
+                          <TextInput
+                            style={styles.textInput}
+                            value={value !== undefined && value !== null ? String(value) : ''}
+                            onChangeText={(text) =>
+                              setEngagementAnswers((prev) => ({
+                                ...prev,
+                                [q.id]: text ? Number(text) || text : '',
+                              }))
+                            }
+                            placeholder="Enter number..."
+                            placeholderTextColor="#94A3B8"
+                            keyboardType="numeric"
+                          />
+                        )}
+
+                        {/* MULTIPLE_CHOICE / DROPDOWN */}
+                        {(q.type === 'MULTIPLE_CHOICE' || q.type === 'DROPDOWN') && (
+                          <View style={styles.optionsRow}>
+                            {q.options?.map((opt) => {
+                              const isSelected = value === opt;
+                              return (
+                                <TouchableOpacity
+                                  key={opt}
+                                  style={[styles.optionPill, isSelected && styles.optionPillSelected]}
+                                  onPress={() =>
+                                    setEngagementAnswers((prev) => ({
+                                      ...prev,
+                                      [q.id]: isSelected ? undefined : opt,
+                                    }))
+                                  }
+                                  activeOpacity={0.7}
+                                >
+                                  <Text
+                                    style={[
+                                      styles.optionPillText,
+                                      isSelected && styles.optionPillTextSelected,
+                                    ]}
+                                  >
+                                    {opt}
+                                  </Text>
+                                </TouchableOpacity>
+                              );
+                            })}
+                          </View>
+                        )}
+
+                        {/* CHECKBOX */}
+                        {q.type === 'CHECKBOX' && (
+                          <View style={styles.checkboxList}>
+                            {q.options?.map((opt) => {
+                              const currentVals = Array.isArray(value) ? value : [];
+                              const isChecked = currentVals.includes(opt);
+                              return (
+                                <TouchableOpacity
+                                  key={opt}
+                                  style={styles.checkboxOptionRow}
+                                  onPress={() => {
+                                    const nextVals = isChecked
+                                      ? currentVals.filter((v: string) => v !== opt)
+                                      : [...currentVals, opt];
+                                    setEngagementAnswers((prev) => ({ ...prev, [q.id]: nextVals }));
+                                  }}
+                                  activeOpacity={0.7}
+                                >
+                                  <View
+                                    style={[
+                                      styles.checkboxBox,
+                                      isChecked && styles.checkboxBoxChecked,
+                                    ]}
+                                  >
+                                    {isChecked && <Check size={11} color="#0F9D58" strokeWidth={3} />}
+                                  </View>
+                                  <Text style={styles.checkboxLabel}>{opt}</Text>
+                                </TouchableOpacity>
+                              );
+                            })}
+                          </View>
+                        )}
+
+                        {/* DATE */}
+                        {q.type === 'DATE' && (
+                          <TextInput
+                            style={styles.textInput}
+                            value={String(value || '')}
+                            onChangeText={(text) =>
+                              setEngagementAnswers((prev) => ({ ...prev, [q.id]: text }))
+                            }
+                            placeholder="YYYY-MM-DD"
+                            placeholderTextColor="#94A3B8"
+                          />
+                        )}
+
+                        {/* TIME */}
+                        {q.type === 'TIME' && (
+                          <TextInput
+                            style={styles.textInput}
+                            value={String(value || '')}
+                            onChangeText={(text) =>
+                              setEngagementAnswers((prev) => ({ ...prev, [q.id]: text }))
+                            }
+                            placeholder="HH:MM"
+                            placeholderTextColor="#94A3B8"
+                          />
+                        )}
+                      </View>
+                    );
+                  })}
+                </View>
+              </View>
+            )}
 
             {/* 5. Save & Update Lead Button */}
             <TouchableOpacity
@@ -1511,20 +1963,27 @@ export const LeadDetailScreen: React.FC = () => {
               </TouchableOpacity>
             </View>
             <ScrollView style={{ maxHeight: 350 }}>
-              {PIPELINE_STATES.map((stg) => {
-                const isSelected = selectedState === stg;
+              {availableStages.map((stg) => {
+                const isSelected = selectedState.toLowerCase() === stg.name.toLowerCase();
                 return (
                   <TouchableOpacity
-                    key={stg}
+                    key={stg.name}
                     style={[styles.pickerItemRow, isSelected && styles.pickerItemRowSelected]}
                     onPress={() => {
-                      setSelectedState(stg);
+                      handleSelectOutcome(stg.name);
                       setShowStatePicker(false);
                     }}
                   >
-                    <Text style={[styles.pickerItemText, isSelected && styles.pickerItemTextSelected]}>
-                      {stg}
-                    </Text>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                      <Text style={[styles.pickerItemText, isSelected && styles.pickerItemTextSelected]}>
+                        {stg.name}
+                      </Text>
+                      {stg.isClosed && (
+                        <View style={styles.closedPill}>
+                          <Text style={styles.closedPillText}>Closing</Text>
+                        </View>
+                      )}
+                    </View>
                     {isSelected ? <Check size={16} color="#0F9D58" strokeWidth={3} /> : null}
                   </TouchableOpacity>
                 );
@@ -1678,6 +2137,15 @@ export const LeadDetailScreen: React.FC = () => {
         }}
       />
 
+      {/* Create Task Modal */}
+      <CreateTaskModal
+        visible={showCreateTaskModal}
+        onClose={() => setShowCreateTaskModal(false)}
+        leadId={currentLead._id}
+        leadName={currentLead.name}
+        leadPhone={currentLead.phone}
+      />
+
       {/* NeoDove-Grade 1-Tap Quick Not Connected Sheet */}
       <Modal
         visible={showNotConnectedModal}
@@ -1710,7 +2178,7 @@ export const LeadDetailScreen: React.FC = () => {
             </Text>
 
             <View style={styles.ncGrid}>
-              {QUICK_NOT_CONNECTED_PRESETS.slice(0, 6).map((item) => (
+              {QUICK_NOT_CONNECTED_PRESETS.map((item) => (
                 <TouchableOpacity
                   key={item.reason}
                   style={styles.ncGridBtn}
@@ -2454,5 +2922,196 @@ const styles = StyleSheet.create({
     fontSize: 12.5,
     fontWeight: '600',
     color: '#475569',
+  },
+  // Communication Strip
+  commStrip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginTop: 10,
+  },
+  commBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    paddingVertical: 7,
+    paddingHorizontal: 12,
+    borderRadius: 8,
+    borderWidth: 1,
+  },
+  commBtnWhatsApp: {
+    backgroundColor: '#F0FDF4',
+    borderColor: '#BBF7D0',
+  },
+  commBtnTextWhatsApp: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#15803D',
+  },
+  commBtnSMS: {
+    backgroundColor: '#EFF6FF',
+    borderColor: '#BFDBFE',
+  },
+  commBtnTextSMS: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#1D4ED8',
+  },
+  commBtnEmail: {
+    backgroundColor: '#FAF5FF',
+    borderColor: '#E9D5FF',
+  },
+  commBtnTextEmail: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#6D28D9',
+  },
+  // Dynamic Pipeline Tag Chips
+  tagChipsRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+    marginTop: 4,
+  },
+  tagChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    paddingVertical: 6,
+    paddingHorizontal: 12,
+    borderRadius: 20,
+    backgroundColor: '#F1F5F9',
+    borderWidth: 1,
+    borderColor: '#CBD5E1',
+  },
+  tagChipSelected: {
+    backgroundColor: '#0F9D58',
+    borderColor: '#0F9D58',
+  },
+  tagChipText: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: '#334155',
+  },
+  tagChipTextSelected: {
+    color: '#FFFFFF',
+  },
+  customTagRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginTop: 4,
+  },
+  customTagInput: {
+    flex: 1,
+    height: 40,
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+    borderRadius: 8,
+    paddingHorizontal: 10,
+    fontSize: 13,
+    color: '#1E293B',
+    backgroundColor: '#FFFFFF',
+  },
+  addTagBtn: {
+    height: 40,
+    paddingHorizontal: 14,
+    backgroundColor: '#5B2C82',
+    borderRadius: 8,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  addTagBtnText: {
+    color: '#FFFFFF',
+    fontSize: 12.5,
+    fontWeight: '600',
+  },
+  closedPill: {
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 4,
+    backgroundColor: '#FEE2E2',
+  },
+  closedPillText: {
+    fontSize: 10,
+    fontWeight: '700',
+    color: '#DC2626',
+  },
+  closingStageNotice: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    padding: 10,
+    backgroundColor: '#ECFDF5',
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#A7F3D0',
+    marginBottom: 8,
+  },
+  closingStageNoticeText: {
+    fontSize: 12.5,
+    fontWeight: '600',
+    color: '#065F46',
+    flex: 1,
+  },
+  // Engagement Form
+  engagementHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginBottom: 10,
+    paddingBottom: 6,
+    borderBottomWidth: 1,
+    borderBottomColor: '#F1F5F9',
+  },
+  engagementFormContainer: {
+    backgroundColor: '#F8FAFC',
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+    padding: 12,
+    gap: 14,
+  },
+  questionBlock: {
+    gap: 6,
+  },
+  questionLabel: {
+    fontSize: 12.5,
+    fontWeight: '600',
+    color: '#334155',
+  },
+  optionsRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 6,
+  },
+  optionPill: {
+    paddingVertical: 5,
+    paddingHorizontal: 10,
+    borderRadius: 6,
+    backgroundColor: '#FFFFFF',
+    borderWidth: 1,
+    borderColor: '#CBD5E1',
+  },
+  optionPillSelected: {
+    backgroundColor: '#4F46E5',
+    borderColor: '#4F46E5',
+  },
+  optionPillText: {
+    fontSize: 12,
+    color: '#475569',
+    fontWeight: '500',
+  },
+  optionPillTextSelected: {
+    color: '#FFFFFF',
+    fontWeight: '700',
+  },
+  checkboxList: {
+    gap: 6,
+  },
+  checkboxOptionRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
   },
 });

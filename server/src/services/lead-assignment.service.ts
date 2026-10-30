@@ -3,11 +3,68 @@ import { ICampaignDoc } from '../models/campaign.model';
 import { Lead } from '../models/lead.model';
 import { User, IUserDoc } from '../models/user.model';
 
+export class AssignmentContext {
+  private agentCounts: Map<string, number> = new Map();
+
+  public async init(campaignId: Types.ObjectId, candidateAgentIds: Types.ObjectId[]) {
+    if (candidateAgentIds.length === 0) return;
+
+    // Single pre-aggregation to load active open lead counts across all candidates
+    const counts = await Lead.aggregate<{ _id: Types.ObjectId; count: number }>([
+      {
+        $match: {
+          campaignId,
+          assignedTo: { $in: candidateAgentIds },
+          status: 'OPEN',
+        },
+      },
+      {
+        $group: {
+          _id: '$assignedTo',
+          count: { $sum: 1 },
+        },
+      },
+    ]);
+
+    for (const c of counts) {
+      this.agentCounts.set(c._id.toString(), c.count);
+    }
+
+    for (const id of candidateAgentIds) {
+      const idStr = id.toString();
+      if (!this.agentCounts.has(idStr)) {
+        this.agentCounts.set(idStr, 0);
+      }
+    }
+  }
+
+  public pickBalanced(candidates: IUserDoc[]): Types.ObjectId | null {
+    if (candidates.length === 0) return null;
+    if (candidates.length === 1) {
+      const idStr = candidates[0]._id.toString();
+      this.agentCounts.set(idStr, (this.agentCounts.get(idStr) || 0) + 1);
+      return candidates[0]._id;
+    }
+
+    // Sort candidates by cached open lead count ascending (0ms CPU operation)
+    const sorted = [...candidates].sort((a, b) => {
+      const countA = this.agentCounts.get(a._id.toString()) || 0;
+      const countB = this.agentCounts.get(b._id.toString()) || 0;
+      return countA - countB;
+    });
+
+    const chosen = sorted[0]._id;
+    const chosenStr = chosen.toString();
+    this.agentCounts.set(chosenStr, (this.agentCounts.get(chosenStr) || 0) + 1);
+    return chosen;
+  }
+}
+
 export class LeadAssignmentService {
   /**
    * Fetches eligible agents (role: 'AGENT', isActive: true, canReceiveLeads: true) from an ID array.
    */
-  private static async getEligibleAgents(agentIds: Types.ObjectId[]): Promise<IUserDoc[]> {
+  public static async getEligibleAgents(agentIds: Types.ObjectId[]): Promise<IUserDoc[]> {
     if (!agentIds || agentIds.length === 0) {
       return [];
     }
@@ -71,12 +128,20 @@ export class LeadAssignmentService {
 
   /**
    * Assigns an agent based on the campaign's distributionMode and customProperties.
-   * Returns the assigned agent's ObjectId or null if unassigned.
+   * Supports AI/PULL bucket mode, EQUAL, and CONDITIONAL.
+   * Uses optional AssignmentContext to prevent N+1 queries during bulk ingest.
    */
   public static async assignLead(
     campaign: ICampaignDoc,
     customProperties: Map<string, string> | Record<string, string>,
+    context?: AssignmentContext,
   ): Promise<Types.ObjectId | null> {
+    // NeoDove Spec 4.6: AI Assignment (pull/bucket mode)
+    // Leads remain unassigned upon upload; pulled on demand by active callers via /api/leads/next
+    if (campaign.distributionMode === 'AI' || campaign.distributionMode === 'PULL') {
+      return null;
+    }
+
     const getProp = (field: string): string | undefined => {
       if (customProperties instanceof Map) {
         return customProperties.get(field);
@@ -101,6 +166,10 @@ export class LeadAssignmentService {
           });
         }
       }
+
+      if (context) {
+        return context.pickBalanced(eligible);
+      }
       return this.pickBalancedAgent(eligible, campaign._id);
     }
 
@@ -111,6 +180,9 @@ export class LeadAssignmentService {
         if (leadVal !== undefined && leadVal.toLowerCase() === rule.value.toLowerCase()) {
           const eligibleInRule = await this.getEligibleAgents(rule.agentIds);
           if (eligibleInRule.length > 0) {
+            if (context) {
+              return context.pickBalanced(eligibleInRule);
+            }
             return this.pickBalancedAgent(eligibleInRule, campaign._id);
           }
         }

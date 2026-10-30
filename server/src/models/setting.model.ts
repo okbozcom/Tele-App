@@ -5,6 +5,14 @@ export interface ISetting {
   followUpMandatoryForNotConnected: boolean;
   autoLeadDistribution?: boolean;
   reassignAfterHours?: number;
+  breakNotificationThresholdMinutes?: number;
+  enableAutoCallDialing?: boolean;
+  autoCallDialingDelaySeconds?: number;
+  maskContactNumber?: boolean;
+  displayStartCallingButton?: boolean;
+  allowCallRecordingPlayback?: boolean;
+  preferredSimSlot?: number | null;
+  leadPriorityOrder?: string[];
   createdAt: Date;
   updatedAt: Date;
 }
@@ -28,6 +36,44 @@ const settingSchema = new Schema<ISettingDoc>(
     reassignAfterHours: {
       type: Number,
       default: 24,
+    },
+    breakNotificationThresholdMinutes: {
+      type: Number,
+      default: 15,
+    },
+    enableAutoCallDialing: {
+      type: Boolean,
+      default: false,
+    },
+    autoCallDialingDelaySeconds: {
+      type: Number,
+      default: 5,
+    },
+    maskContactNumber: {
+      type: Boolean,
+      default: false,
+    },
+    displayStartCallingButton: {
+      type: Boolean,
+      default: true,
+    },
+    allowCallRecordingPlayback: {
+      type: Boolean,
+      default: true,
+    },
+    preferredSimSlot: {
+      type: Number,
+      default: null,
+    },
+    leadPriorityOrder: {
+      type: [String],
+      default: [
+        'OVERDUE_FOLLOWUPS',
+        'TODAY_FOLLOWUPS',
+        'HIGH_PRIORITY_CAMPAIGNS',
+        'NEW_UNCONTACTED',
+        'RETRY_NOT_CONNECTED',
+      ],
     },
   },
   {

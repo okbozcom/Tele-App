@@ -17,7 +17,7 @@ import {
   RefreshControl,
   Platform,
 } from 'react-native';
-import { useNavigation } from '@react-navigation/native';
+import { useNavigation, useFocusEffect } from '@react-navigation/native';
 import { useSidebarStore } from '../store/sidebarStore';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
@@ -40,7 +40,7 @@ import {
   RotateCcw,
 } from 'lucide-react-native';
 
-import { fetchMyLeads, fetchCampaigns, createWalkInLead, MyLeadsResponse } from '../api/leadApi';
+import { fetchMyLeads, fetchMyLeadsCounts, fetchCampaigns, createWalkInLead, MyLeadsResponse } from '../api/leadApi';
 import { storage } from '../utils/storage';
 import { Lead, RootStackParamList } from '../types';
 import { colors } from '../theme';
@@ -84,6 +84,7 @@ interface ScreenshotLead {
   status: 'New' | 'Interested' | 'Follow-up' | 'Not connected' | 'Not Interested';
   priority: 'High' | 'Medium' | 'Low';
   lastContact: string;
+  rawLead?: Lead;
 }
 
 // ======================================================================
@@ -312,6 +313,19 @@ const MyLeadsScreenContent: React.FC = () => {
     });
   }, [userLeadsCacheKey]);
 
+  const backendType: 'ALL' | 'NEW' | 'INTERESTED' | 'FOLLOW_UP' | 'NOT_CONNECTED' | 'NOT_INTERESTED' =
+    selectedFilter === 'New'
+      ? 'NEW'
+      : selectedFilter === 'Follow-up'
+      ? 'FOLLOW_UP'
+      : selectedFilter === 'Not connected'
+      ? 'NOT_CONNECTED'
+      : selectedFilter === 'Interested'
+      ? 'INTERESTED'
+      : selectedFilter === 'Not Interested'
+      ? 'NOT_INTERESTED'
+      : 'ALL';
+
   const {
     data: leadsData,
     isLoading: isLeadsLoading,
@@ -320,12 +334,36 @@ const MyLeadsScreenContent: React.FC = () => {
     error: leadsError,
     refetch,
   } = useQuery({
-    queryKey: ['myLeadsList', user?._id],
-    queryFn: () => fetchMyLeads({ limit: 500 }),
+    queryKey: ['myLeadsList', user?._id, backendType, selectedCampaignId, debouncedSearch],
+    queryFn: () =>
+      fetchMyLeads({
+        type: debouncedSearch ? 'ALL' : backendType,
+        campaignId: selectedCampaignId || undefined,
+        search: debouncedSearch || undefined,
+        limit: 5000,
+      }),
     refetchInterval: 60000,
     refetchIntervalInBackground: false,
-    staleTime: 1000 * 60 * 3, // 3 minutes cache TTL
+    staleTime: 1000 * 15,
   });
+
+  const { data: serverCounts, refetch: refetchCounts } = useQuery({
+    queryKey: ['myLeadsCounts', user?._id, selectedCampaignId],
+    queryFn: () =>
+      fetchMyLeadsCounts({
+        campaignId: selectedCampaignId || undefined,
+        userId: isManagerOrAdmin && assignmentScope === 'ME' ? String(user?._id) : undefined,
+      }),
+    refetchInterval: 30000,
+    staleTime: 1000 * 15,
+  });
+
+  useFocusEffect(
+    useCallback(() => {
+      refetch();
+      refetchCounts();
+    }, [refetch, refetchCounts]),
+  );
 
   useEffect(() => {
     if (leadsData && Array.isArray(leadsData.leads)) {
@@ -338,7 +376,7 @@ const MyLeadsScreenContent: React.FC = () => {
 
   // Real backend leads (backend /api/leads/my is already strictly scoped to logged-in user)
   const combinedLeads: ScreenshotLead[] = useMemo(() => {
-    const rawLeads = effectiveLeadsData?.leads || [];
+    const rawLeads = (effectiveLeadsData?.leads || []).filter((l: Lead) => l && l._id);
     if (!Array.isArray(rawLeads) || rawLeads.length === 0) return [];
 
     const realLeads = [...rawLeads].sort((a: Lead, b: Lead) => {
@@ -348,7 +386,7 @@ const MyLeadsScreenContent: React.FC = () => {
       if (aCalled === 1 && bCalled === 1) {
         const aTime = a?.lastContactedAt ? new Date(a.lastContactedAt).getTime() : 0;
         const bTime = b?.lastContactedAt ? new Date(b.lastContactedAt).getTime() : 0;
-        if (aTime !== bTime) return aTime - bTime;
+        if (aTime !== bTime) return bTime - aTime; // Most recently contacted first
       }
       return 0;
     });
@@ -364,6 +402,21 @@ const MyLeadsScreenContent: React.FC = () => {
           : l?.campaignId;
 
       const normalizedStage = (l?.stage || 'New').toString().trim().toLowerCase();
+      const isNotConnectedStage =
+        normalizedStage.includes('not connected') ||
+        normalizedStage.includes('did not pick') ||
+        normalizedStage.includes('no answer') ||
+        normalizedStage.includes('busy') ||
+        normalizedStage.includes('disconnected') ||
+        normalizedStage.includes('switch') ||
+        normalizedStage.includes('coverage') ||
+        normalizedStage.includes('ringing') ||
+        normalizedStage.includes('unreachable') ||
+        normalizedStage.includes('call cut') ||
+        normalizedStage.includes('not completed') ||
+        normalizedStage.includes('invalid') ||
+        normalizedStage.includes('not in use');
+
       const hasFollowUpSchedule = !!l?.nextFollowUpAt;
 
       let stg: 'New' | 'Interested' | 'Follow-up' | 'Not connected' | 'Not Interested';
@@ -371,6 +424,8 @@ const MyLeadsScreenContent: React.FC = () => {
         stg = 'New';
       } else if (normalizedStage === 'interested') {
         stg = 'Interested';
+      } else if (isNotConnectedStage) {
+        stg = 'Not connected';
       } else if (
         normalizedStage === 'not interested' ||
         normalizedStage === 'closed' ||
@@ -379,14 +434,6 @@ const MyLeadsScreenContent: React.FC = () => {
         l?.status === 'CLOSED'
       ) {
         stg = 'Not Interested';
-      } else if (
-        normalizedStage === 'not connected' ||
-        normalizedStage === 'busy' ||
-        normalizedStage === 'ringing' ||
-        normalizedStage === 'switched off' ||
-        normalizedStage === 'unreachable'
-      ) {
-        stg = 'Not connected';
       } else if (
         hasFollowUpSchedule ||
         normalizedStage === 'follow up' ||
@@ -428,7 +475,7 @@ const MyLeadsScreenContent: React.FC = () => {
           : 'Medium';
 
       return {
-        _id: l?._id || (l?.phone ? `lead-phone-${l.phone.replace(/\D/g, '')}` : `lead-fallback-${cId || 'gen'}`),
+        _id: String(l._id),
         name: (l?.name || 'Lead Contact').toString(),
         phone: formatDisplayPhone(l?.phone || ''),
         campaignName: camp,
@@ -450,6 +497,7 @@ const MyLeadsScreenContent: React.FC = () => {
               minute: '2-digit',
             })
           : 'Never',
+        rawLead: l,
       };
     });
   }, [effectiveLeadsData, isAgent, user]);
@@ -474,6 +522,9 @@ const MyLeadsScreenContent: React.FC = () => {
 
   // Compute status pill counts based on active campaign selection
   const counts = useMemo(() => {
+    if (serverCounts && selectedCampaign === 'All campaigns' && assignmentScope === 'ALL') {
+      return serverCounts;
+    }
     const selCampLower = (selectedCampaign || 'All campaigns').toLowerCase();
     const myId = user?._id ? String(user._id) : '';
     const scopedLeads = combinedLeads.filter((l) => {
@@ -494,7 +545,7 @@ const MyLeadsScreenContent: React.FC = () => {
     const notConn = scopedLeads.filter((l) => l.status === 'Not connected').length;
     const notInterested = scopedLeads.filter((l) => l.status === 'Not Interested').length;
     return { all, new: n, interested, followup, notConnected: notConn, notInterested };
-  }, [combinedLeads, selectedCampaign, selectedCampaignId, isManagerOrAdmin, assignmentScope, user?._id]);
+  }, [serverCounts, combinedLeads, selectedCampaign, selectedCampaignId, isManagerOrAdmin, assignmentScope, user?._id]);
 
   // Filtered Leads
   const filteredLeads = useMemo(() => {
@@ -509,23 +560,50 @@ const MyLeadsScreenContent: React.FC = () => {
 
       // Campaign filter (scoped strictly to selected campaign)
       if (selectedCampaign !== 'All campaigns') {
-        const matchesName = (lead.campaignName || '').toLowerCase() === selCampLower;
-        const matchesId = selectedCampaignId && lead.campaignId === selectedCampaignId;
-        if (!matchesName && !matchesId) {
-          return false;
+        if (selectedCampaignId && lead.campaignId) {
+          if (lead.campaignId !== selectedCampaignId) {
+            return false;
+          }
+        } else {
+          const matchesName = (lead.campaignName || '').toLowerCase() === selCampLower;
+          if (!matchesName) {
+            return false;
+          }
         }
       }
 
-      const isLost = isLeadLostOrSuppressed(lead as any) || lead.status === 'Not Interested';
+      const isLost =
+        (isLeadLostOrSuppressed(lead as any) && lead.status !== 'Not connected') ||
+        lead.status === 'Not Interested';
 
-      // Status filter
+      // Search query (debounced)
+      if (q) {
+        const qDigits = q.replace(/\D/g, '');
+        const phoneDigits = (lead.phone || '').replace(/\D/g, '');
+        const rawPhoneDigits = ((lead.rawLead?.phone) || '').replace(/\D/g, '');
+        const phoneMatches =
+          (lead.phone || '').toLowerCase().includes(q) ||
+          (qDigits.length >= 4 && (phoneDigits.includes(qDigits) || rawPhoneDigits.includes(qDigits)));
+
+        const matchesQuery =
+          phoneMatches ||
+          (lead.name || '').toLowerCase().includes(q) ||
+          (lead.campaignName || '').toLowerCase().includes(q);
+
+        if (!matchesQuery) {
+          return false;
+        }
+
+        // Universal search: when user searches, show the matching lead across all tabs!
+        return true;
+      }
+
+      // Status filter when not searching
       if (selectedFilter === 'All') {
-        // By default in All (Active Working Leads), hide Customer Lost / Not Interested so telecallers don't disturb them
         if (isLost) {
           return false;
         }
       } else if (selectedFilter === 'Not Interested') {
-        // Strictly show Customer Lost in this archive tab
         if (!isLost) {
           return false;
         }
@@ -533,14 +611,6 @@ const MyLeadsScreenContent: React.FC = () => {
         return false;
       }
 
-      // Search query (debounced)
-      if (q) {
-        return (
-          (lead.name || '').toLowerCase().includes(q) ||
-          (lead.phone || '').toLowerCase().includes(q) ||
-          (lead.campaignName || '').toLowerCase().includes(q)
-        );
-      }
       return true;
     });
   }, [combinedLeads, selectedFilter, selectedCampaign, debouncedSearch, selectedCampaignId, isManagerOrAdmin, assignmentScope, user?._id]);
@@ -660,9 +730,13 @@ const MyLeadsScreenContent: React.FC = () => {
 
   // Handle Open Lead Modal
   const handleOpenLead = (item: ScreenshotLead) => {
+    if (item.rawLead) {
+      setQuickModalLead(item.rawLead);
+      return;
+    }
     const syntheticLead: Lead = {
       _id: item._id,
-      campaignId: 'default-camp',
+      campaignId: item.campaignId || 'default-camp',
       name: item.name,
       phone: item.phone,
       source: 'WALK_IN',
@@ -1192,6 +1266,7 @@ const MyLeadsScreenContent: React.FC = () => {
               refreshing={isLeadsRefetching}
               onRefresh={() => {
                 refetch();
+                refetchCounts();
                 refetchCampaigns();
               }}
               colors={[T.color.primary]}
@@ -1209,6 +1284,7 @@ const MyLeadsScreenContent: React.FC = () => {
               refreshing={isLeadsRefetching}
               onRefresh={() => {
                 refetch();
+                refetchCounts();
                 refetchCampaigns();
               }}
               colors={[T.color.primary]}

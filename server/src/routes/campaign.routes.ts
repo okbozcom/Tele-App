@@ -17,6 +17,7 @@ router.use(authenticate);
 // Reads: Any authenticated user can access (scoped internally by role)
 router.get('/', CampaignController.listCampaigns);
 router.get('/:id', validate(campaignIdParamSchema), CampaignController.getCampaign);
+router.get('/:id/stats', validate(campaignIdParamSchema), CampaignController.getCampaignStats);
 
 // Writes: ADMIN and MANAGER only
 router.post(

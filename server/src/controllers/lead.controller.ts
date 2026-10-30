@@ -201,6 +201,24 @@ export class LeadController {
     }
   }
 
+  public static async getMyLeadsCounts(
+    req: Request,
+    res: Response,
+    next: NextFunction,
+  ): Promise<void> {
+    try {
+      if (!req.user) {
+        throw new AppError('Authentication required', 401);
+      }
+
+      const query = req.query as unknown as MyLeadsQuery;
+      const counts = await LeadService.getMyLeadsCounts(req.user, query);
+      res.status(200).json({ counts });
+    } catch (error) {
+      next(error);
+    }
+  }
+
   public static async reassignLead(
     req: Request,
     res: Response,
@@ -235,6 +253,86 @@ export class LeadController {
         req.body.campaignId,
       );
       res.status(200).json(result);
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  public static async bulkUpdate(
+    req: Request,
+    res: Response,
+    next: NextFunction,
+  ): Promise<void> {
+    try {
+      if (!req.user) {
+        throw new AppError('Authentication required', 401);
+      }
+      const result = await LeadService.bulkUpdate(req.user, req.body);
+      res.status(200).json({ status: 'success', ...result });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  public static async bulkMove(
+    req: Request,
+    res: Response,
+    next: NextFunction,
+  ): Promise<void> {
+    try {
+      if (!req.user) {
+        throw new AppError('Authentication required', 401);
+      }
+      const result = await LeadService.bulkMove(req.user, req.body);
+      res.status(200).json({ status: 'success', ...result });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  public static async bulkCopy(
+    req: Request,
+    res: Response,
+    next: NextFunction,
+  ): Promise<void> {
+    try {
+      if (!req.user) {
+        throw new AppError('Authentication required', 401);
+      }
+      const result = await LeadService.bulkCopy(req.user, req.body);
+      res.status(200).json({ status: 'success', ...result });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  public static async bulkClose(
+    req: Request,
+    res: Response,
+    next: NextFunction,
+  ): Promise<void> {
+    try {
+      if (!req.user) {
+        throw new AppError('Authentication required', 401);
+      }
+      const result = await LeadService.bulkClose(req.user, req.body);
+      res.status(200).json({ status: 'success', ...result });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  public static async bulkDelete(
+    req: Request,
+    res: Response,
+    next: NextFunction,
+  ): Promise<void> {
+    try {
+      if (!req.user) {
+        throw new AppError('Authentication required', 401);
+      }
+      const result = await LeadService.bulkDelete(req.user, req.body);
+      res.status(200).json({ status: 'success', ...result });
     } catch (error) {
       next(error);
     }
@@ -387,4 +485,55 @@ export class LeadController {
       next(err);
     }
   }
+
+  public static async getNextLead(
+    req: Request,
+    res: Response,
+    next: NextFunction,
+  ): Promise<void> {
+    try {
+      if (!req.user) {
+        throw new AppError('Authentication required', 401);
+      }
+
+      const result = await LeadService.getNextLead(req.user, req.body);
+      res.status(200).json({ status: 'success', ...result });
+    } catch (err) {
+      next(err);
+    }
+  }
+
+  public static async unlockLead(
+    req: Request,
+    res: Response,
+    next: NextFunction,
+  ): Promise<void> {
+    try {
+      if (!req.user) {
+        throw new AppError('Authentication required', 401);
+      }
+
+      const result = await LeadService.unlockLead(req.user, req.params.id);
+      res.status(200).json({ status: 'success', unlocked: result });
+    } catch (err) {
+      next(err);
+    }
+  }
+
+  public static async getDialIntent(
+    req: Request,
+    res: Response,
+    next: NextFunction,
+  ): Promise<void> {
+    try {
+      if (!req.user) {
+        throw new AppError('Authentication required', 401);
+      }
+      const result = await LeadService.getDialIntent(req.user, req.params.id);
+      res.status(200).json({ status: 'success', ...result });
+    } catch (err) {
+      next(err);
+    }
+  }
 }
+

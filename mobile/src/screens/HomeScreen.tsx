@@ -54,12 +54,14 @@ import { useAuthStore } from '../store/authStore';
 import { useCampaignStore } from '../store/campaignStore';
 import { useLeadHistoryStore, deduplicateActivities } from '../store/leadHistoryStore';
 import { useNotificationStore } from '../store/notificationStore';
+import { useDailyStats } from '../hooks/useDailyStats';
 import { callSession } from '../services/callSession';
 import { incomingCallSyncService } from '../services/incomingCallSync.service';
 import {
   fetchDashboardReports,
   fetchUserCallsReport,
   fetchMyLeads,
+  fetchMyLeadsCounts,
   fetchCampaigns,
   fetchBranches,
   MyLeadsResponse,
@@ -246,6 +248,7 @@ const HomeScreenContent: React.FC = () => {
 
   // 1. Dashboard Metrics from Backend (optimized polling: 45s)
   const queryUserId = !isAgent && callScope === 'TEAM' ? undefined : user?._id;
+  const dailyStats = useDailyStats(period === 'Custom' && customDate ? customDate : undefined);
 
   const {
     data: dashboardData,
@@ -321,11 +324,23 @@ const HomeScreenContent: React.FC = () => {
         type: 'ALL',
         campaignId: selectedCampaignId || undefined,
         userId: !isAgent && callScope === 'MY' && user?._id ? String(user._id) : undefined,
-        limit: 5000,
+        limit: 100,
       }),
     refetchInterval: 45000,
     refetchIntervalInBackground: false,
     staleTime: 1000 * 60 * 3, // 3 minutes cache TTL
+  });
+
+  const { data: serverCounts } = useQuery({
+    queryKey: ['homeMyLeadsCounts', selectedCampaignId, callScope, user?._id],
+    queryFn: () =>
+      fetchMyLeadsCounts({
+        campaignId: selectedCampaignId || undefined,
+        userId: !isAgent && callScope === 'MY' && user?._id ? String(user._id) : undefined,
+      }),
+    refetchInterval: 30000,
+    refetchIntervalInBackground: false,
+    staleTime: 1000 * 20,
   });
 
   useEffect(() => {
@@ -508,7 +523,7 @@ const HomeScreenContent: React.FC = () => {
   // ==============================================================
   const myAssignedLeadsCount =
     effectiveBranch === 'ALL'
-      ? (effectiveMyLeadsData?.total ?? (effectiveMyLeadsData?.leads?.length || 0))
+      ? (serverCounts?.all ?? effectiveMyLeadsData?.total ?? (effectiveMyLeadsData?.leads?.length || 0))
       : allBranchFilteredLeads.length;
 
   // Calls made and connected (combines local session with backend reports)
@@ -546,17 +561,26 @@ const HomeScreenContent: React.FC = () => {
   );
   const pendingInboundConnected = pendingInboundActivities.filter((a) => a.connected);
 
-  const callsMade = hasBackendDashboard
-    ? (dashboardData.callsMade || 0) + pendingOutboundActivities.length
-    : localCallsCount;
+  const callsMade =
+    period === 'Today' && dailyStats.stats
+      ? dailyStats.attempts + pendingOutboundActivities.length
+      : hasBackendDashboard
+      ? (dashboardData.callsMade || 0) + pendingOutboundActivities.length
+      : localCallsCount;
 
-  const connectedCalls = hasBackendDashboard
-    ? (dashboardData.connectedCalls || 0) + pendingConnectedActivities.length
-    : localConnectedCount;
+  const connectedCalls =
+    period === 'Today' && dailyStats.stats
+      ? dailyStats.connected + pendingConnectedActivities.length
+      : hasBackendDashboard
+      ? (dashboardData.connectedCalls || 0) + pendingConnectedActivities.length
+      : localConnectedCount;
 
-  const totalCallDurationSeconds = hasBackendDashboard
-    ? (dashboardData.totalDurationSeconds || 0) + pendingDuration
-    : localTotalDuration;
+  const totalCallDurationSeconds =
+    period === 'Today' && dailyStats.stats
+      ? dailyStats.talkSeconds + pendingDuration
+      : hasBackendDashboard
+      ? (dashboardData.totalDurationSeconds || 0) + pendingDuration
+      : localTotalDuration;
 
   const connectRatePercent = callsMade > 0 ? ((connectedCalls / callsMade) * 100).toFixed(0) + '%' : '0%';
 
@@ -1239,7 +1263,9 @@ const HomeScreenContent: React.FC = () => {
                     </View>
                   </View>
                   <View style={[styles.neoQueueCountBadge, { backgroundColor: '#E6F4EA' }]}>
-                    <Text style={[styles.neoQueueCountBadgeText, { color: '#0F9D58' }]}>{newUnattemptedLeads.length}</Text>
+                    <Text style={[styles.neoQueueCountBadgeText, { color: '#0F9D58' }]}>
+                      {serverCounts ? serverCounts.new : newUnattemptedLeads.length}
+                    </Text>
                   </View>
                 </View>
                 <View style={styles.neoQueueActionsRow}>
@@ -1277,7 +1303,9 @@ const HomeScreenContent: React.FC = () => {
                     </View>
                   </View>
                   <View style={[styles.neoQueueCountBadge, { backgroundColor: '#FEF3C7' }]}>
-                    <Text style={[styles.neoQueueCountBadgeText, { color: '#B45309' }]}>{followUpLeads.length}</Text>
+                    <Text style={[styles.neoQueueCountBadgeText, { color: '#B45309' }]}>
+                      {serverCounts ? serverCounts.followup : followUpLeads.length}
+                    </Text>
                   </View>
                 </View>
                 <View style={styles.neoQueueActionsRow}>
@@ -1315,7 +1343,9 @@ const HomeScreenContent: React.FC = () => {
                     </View>
                   </View>
                   <View style={[styles.neoQueueCountBadge, { backgroundColor: '#FEE2E2' }]}>
-                    <Text style={[styles.neoQueueCountBadgeText, { color: '#DC2626' }]}>{notConnectedLeads.length}</Text>
+                    <Text style={[styles.neoQueueCountBadgeText, { color: '#DC2626' }]}>
+                      {serverCounts ? serverCounts.notConnected : notConnectedLeads.length}
+                    </Text>
                   </View>
                 </View>
                 <View style={styles.neoQueueActionsRow}>

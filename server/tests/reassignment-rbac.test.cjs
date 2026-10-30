@@ -4,6 +4,7 @@ const { Types } = require('mongoose');
 
 const { LeadService } = require('../dist/services/lead.service');
 const { ActivityService } = require('../dist/services/activity.service');
+const { CampaignService } = require('../dist/services/campaign.service');
 const { Lead } = require('../dist/models/lead.model');
 const { Campaign } = require('../dist/models/campaign.model');
 const { User } = require('../dist/models/user.model');
@@ -313,5 +314,123 @@ describe('Production RBAC & Service Authorization Integration Tests', () => {
       assert.ok(projectStage.assignedToId, 'assignedToId field must be explicitly projected');
       assert.ok(projectStage.campaign, 'campaign field must be projected');
     });
+
+    it('applies search filter in getMyLeads when search parameter is provided', async () => {
+      const adminId = new Types.ObjectId();
+      const requester = { _id: adminId, role: 'ADMIN' };
+
+      let capturedPipeline = null;
+      mock.method(Lead, 'aggregate', async (pipeline) => {
+        capturedPipeline = pipeline;
+        return [{ metadata: [{ total: 1 }], data: [{ _id: 'l1', phone: '8754272093' }] }];
+      });
+
+      const res = await LeadService.getMyLeads(requester, { search: '8754272093', type: 'ALL' });
+
+      assert.equal(res.total, 1);
+      assert.ok(capturedPipeline);
+      const matchStage = capturedPipeline[0].$match;
+      assert.ok(matchStage.$or, '$or search conditions must be present in matchStage');
+      assert.ok(matchStage.$or.some((c) => c.phone instanceof RegExp));
+    });
+
+    it('returns atomic tab counts via getMyLeadsCounts using $facet', async () => {
+      const agentId = new Types.ObjectId();
+      const requester = { _id: agentId, role: 'AGENT' };
+
+      let capturedPipeline = null;
+      mock.method(Lead, 'aggregate', async (pipeline) => {
+        capturedPipeline = pipeline;
+        return [
+          {
+            all: [{ count: 100 }],
+            new: [{ count: 80 }],
+            followup: [{ count: 10 }],
+            notConnected: [{ count: 5 }],
+            interested: [{ count: 3 }],
+            notInterested: [{ count: 2 }],
+          },
+        ];
+      });
+
+      const counts = await LeadService.getMyLeadsCounts(requester, { type: 'ALL' });
+
+      assert.equal(counts.all, 100);
+      assert.equal(counts.new, 80);
+      assert.equal(counts.followup, 10);
+      assert.equal(counts.notConnected, 5);
+      assert.equal(counts.interested, 3);
+      assert.equal(counts.notInterested, 2);
+      assert.ok(capturedPipeline);
+      assert.ok(capturedPipeline[1].$facet);
+    });
+  });
+
+  describe('CampaignService.getCampaignStats Atomic Aggregation & Scoping', () => {
+    it('returns aggregated stats and agentDistribution using $facet and $group', async () => {
+      const campaignId = new Types.ObjectId();
+      const adminId = new Types.ObjectId();
+      const requester = { _id: adminId, role: 'ADMIN' };
+
+      mock.method(Campaign, 'findById', async () => ({
+        _id: campaignId,
+        managerId: new Types.ObjectId(),
+        agentIds: [],
+      }));
+
+      mock.method(Lead, 'aggregate', async (pipeline) => {
+        if (pipeline[1] && pipeline[1].$facet) {
+          return [
+            {
+              total: [{ count: 120 }],
+              open: [{ count: 80 }],
+              followUp: [{ count: 20 }],
+              notConnected: [{ count: 10 }],
+              converted: [{ count: 5 }],
+              lost: [{ count: 5 }],
+              closedTotal: [{ count: 10 }],
+            },
+          ];
+        }
+        return [
+          {
+            agentId: 'a1',
+            agentName: 'Agent Alice',
+            total: 60,
+            open: 40,
+            followUp: 10,
+            notConnected: 5,
+            closed: 5,
+          },
+        ];
+      });
+
+      const res = await CampaignService.getCampaignStats(requester, campaignId.toString());
+      assert.equal(res.stats.total, 120);
+      assert.equal(res.stats.open, 80);
+      assert.equal(res.stats.followUp, 20);
+      assert.equal(res.stats.notConnected, 10);
+      assert.equal(res.agentDistribution.length, 1);
+      assert.equal(res.agentDistribution[0].agentName, 'Agent Alice');
+    });
+
+    it('rejects an AGENT not assigned to the campaign with 403 Forbidden', async () => {
+      const campaignId = new Types.ObjectId();
+      const agentId = new Types.ObjectId();
+      const otherAgentId = new Types.ObjectId();
+      const requester = { _id: agentId, role: 'AGENT' };
+
+      mock.method(Campaign, 'findById', async () => ({
+        _id: campaignId,
+        managerId: new Types.ObjectId(),
+        agentIds: [otherAgentId],
+      }));
+
+      await assert.rejects(
+        () => CampaignService.getCampaignStats(requester, campaignId.toString()),
+        (err) => err instanceof AppError && err.statusCode === 403 && err.message.includes('Forbidden')
+      );
+    });
   });
 });
+

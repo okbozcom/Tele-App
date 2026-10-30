@@ -718,7 +718,8 @@ export class ReportService {
           .sort({ createdAt: -1 })
           .limit(5000)
           .populate('userId', 'name email branch')
-          .populate('leadId', 'name phone stage status');
+          .populate('leadId', 'name phone stage status')
+          .lean();
 
         const lines: string[] = [
           'Date & Time,Agent Name,Agent Email,Customer Name,Customer Phone,Direction,Connected,Duration (sec),Stage,Deal Amount,Remarks',

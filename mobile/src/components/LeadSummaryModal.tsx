@@ -336,33 +336,31 @@ export const LeadSummaryModal: React.FC<LeadSummaryModalProps> = ({
                 <View style={styles.summaryCard}>
                   <View style={styles.cardHeaderRow}>
                     <Text style={styles.eyebrow}>LEAD DETAILS</Text>
-                    <View
-                      style={[
-                        styles.tempBadge,
-                        lead.temperature === 'HOT' || lead.tag === 'HOT'
-                          ? styles.tempHot
-                          : lead.temperature === 'COLD' || lead.tag === 'COLD'
-                          ? styles.tempCold
-                          : styles.tempWarm,
-                      ]}
-                    >
-                      <Text
+                    {Boolean(lead.tag || lead.temperature) && (
+                      <View
                         style={[
-                          styles.tempBadgeText,
-                          lead.temperature === 'HOT' || lead.tag === 'HOT'
-                            ? styles.tempHotText
-                            : lead.temperature === 'COLD' || lead.tag === 'COLD'
-                            ? styles.tempColdText
-                            : styles.tempWarmText,
+                          styles.tempBadge,
+                          (lead.tag?.toUpperCase() === 'HOT' || lead.temperature === 'HOT')
+                            ? styles.tempHot
+                            : (lead.tag?.toUpperCase() === 'COLD' || lead.temperature === 'COLD')
+                            ? styles.tempCold
+                            : styles.tempWarm,
                         ]}
                       >
-                        {lead.temperature === 'HOT' || lead.tag === 'HOT'
-                          ? '🔥 HOT'
-                          : lead.temperature === 'COLD' || lead.tag === 'COLD'
-                          ? '❄️ COLD'
-                          : '☀️ WARM'}
-                      </Text>
-                    </View>
+                        <Text
+                          style={[
+                            styles.tempBadgeText,
+                            (lead.tag?.toUpperCase() === 'HOT' || lead.temperature === 'HOT')
+                              ? styles.tempHotText
+                              : (lead.tag?.toUpperCase() === 'COLD' || lead.temperature === 'COLD')
+                              ? styles.tempColdText
+                              : styles.tempWarmText,
+                          ]}
+                        >
+                          {lead.tag || lead.temperature}
+                        </Text>
+                      </View>
+                    )}
                   </View>
 
                   <View style={styles.infoGrid}>

@@ -69,7 +69,7 @@ export const CampaignSelectScreen: React.FC = () => {
     refetch: refetchLeads,
   } = useQuery({
     queryKey: ['myLeadsList'],
-    queryFn: () => fetchMyLeads({ limit: 5000 }),
+    queryFn: () => fetchMyLeads({ limit: 1 }),
     staleTime: 30000,
     refetchInterval: 30000,
     refetchIntervalInBackground: false,

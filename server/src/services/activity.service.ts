@@ -9,6 +9,9 @@ import { RetryRuleService } from './retry-rule.service';
 import { LeadIngestService } from './lead-ingest.service';
 import { AuditService } from './audit.service';
 import { DisposeLeadInput } from '../validations/activity.validation';
+import { DailyStatService } from './daily-stat.service';
+import { resolveCallDate } from '../utils/dateUtils';
+import { maskPhoneNumber } from '../utils/phoneUtils';
 import { AppError } from '../utils/AppError';
 
 export interface DisposeResult {
@@ -34,33 +37,44 @@ export class ActivityService {
       lead = await Lead.findOne({ phone: { $regex: cleanPhone } });
     }
 
-    // Check IdempotencyKey first: If already processed, return existing activity and lead
+    const formatDisposeResult = async (act: IActivityDoc, ld: ILeadDoc): Promise<DisposeResult> => {
+      const settings = await SettingService.getSettings();
+      if (settings.maskContactNumber && requester.role === 'AGENT') {
+        const maskedLead = ld.toObject ? ld.toObject() : { ...ld };
+        maskedLead.phone = maskPhoneNumber(maskedLead.phone);
+        maskedLead.isMasked = true;
+        const maskedActivity = act.toObject ? act.toObject() : { ...act };
+        maskedActivity.phone = maskPhoneNumber(maskedActivity.phone);
+        return {
+          activity: maskedActivity as unknown as IActivityDoc,
+          lead: maskedLead as unknown as ILeadDoc,
+        };
+      }
+      return { activity: act, lead: ld };
+    };
+
+    // Check clientEventId and idempotencyKey: If already processed, return existing activity and lead
+    if (input.clientEventId) {
+      const existingByClientEventId = await Activity.findOne({
+        userId: requester._id,
+        clientEventId: input.clientEventId,
+      });
+      if (existingByClientEventId) {
+        const resolvedLead = lead || (await Lead.findById(existingByClientEventId.leadId));
+        return formatDisposeResult(existingByClientEventId, resolvedLead!);
+      }
+    }
+
     if (input.idempotencyKey) {
       const existingActivity = await Activity.findOne({ idempotencyKey: input.idempotencyKey });
       if (existingActivity) {
         const resolvedLead = lead || (await Lead.findById(existingActivity.leadId));
-        return {
-          activity: existingActivity,
-          lead: resolvedLead!,
-        };
+        return formatDisposeResult(existingActivity, resolvedLead!);
       }
     }
 
-    // If still not found, locate a default campaign and auto-create/upsert lead
     if (!lead) {
-      const defaultCampaign = await Campaign.findOne();
-      if (!defaultCampaign) {
-        throw new AppError('Lead not found and no active campaign exists', 404);
-      }
-      const rawPhone = candidatePhone || '9810000129';
-      lead = await Lead.create({
-        name: 'Lead ' + rawPhone.slice(-4),
-        phone: rawPhone,
-        campaignId: defaultCampaign._id,
-        assignedTo: requester._id,
-        stage: input.stage || 'New',
-        status: 'OPEN',
-      });
+      throw new AppError('Lead not found', 404);
     }
 
     let campaign = await Campaign.findById(lead.campaignId);
@@ -294,6 +308,16 @@ export class ActivityService {
     }
     await lead.save();
 
+    const duration = isCallAttempt && input.connected ? input.durationSeconds || 0 : 0;
+    const isMismatch = input.dispositionMismatch ?? (
+      (!input.connected && duration > 20) ||
+      (input.connected && duration === 0 && input.durationSource === 'DEVICE_CALL_LOG')
+    );
+
+    const { callDate, dayIST } = resolveCallDate(input.startedAt || input.clientTimestamp || new Date());
+    const startedAt = input.startedAt ? new Date(input.startedAt) : callDate;
+    const endedAt = input.endedAt ? new Date(input.endedAt) : (duration > 0 ? new Date(startedAt.getTime() + duration * 1000) : null);
+
     // Create Activity log
     const activity = await Activity.create({
       leadId: lead._id,
@@ -301,6 +325,15 @@ export class ActivityService {
       branch: (requester as { branch?: string }).branch || (lead as { branch?: string }).branch || null,
       campaignId: lead.campaignId,
       userId: requester._id,
+      clientEventId: input.clientEventId || null,
+      startedAt,
+      endedAt,
+      durationSource: input.durationSource || 'APP_ESTIMATE',
+      dispositionMismatch: Boolean(isMismatch),
+      noAttempt: Boolean(input.noAttempt),
+      clientTimestamp: input.clientTimestamp ? new Date(input.clientTimestamp) : null,
+      serverReceivedAt: new Date(),
+      dayIST,
       type: isCallAttempt ? 'CALL' : 'UPDATE',
       direction: input.direction || 'OUTGOING',
       connected: isCallAttempt && input.connected,
@@ -310,7 +343,7 @@ export class ActivityService {
       tag: lead.tag || input.tag || null,
       remark: input.remark || null,
       followUpAt: lead.nextFollowUpAt,
-      durationSeconds: isCallAttempt && input.connected ? input.durationSeconds || 0 : 0,
+      durationSeconds: duration,
       answers: input.answers || [],
       callLogId: input.callLogId || null,
       idempotencyKey: input.idempotencyKey || null,
@@ -319,7 +352,14 @@ export class ActivityService {
       currency: input.currency || 'INR',
     });
 
-    return { activity, lead };
+    // Atomically record into DailyStat
+    try {
+      await DailyStatService.recordActivity(activity);
+    } catch (statErr) {
+      console.error('[ActivityService] Error updating DailyStat:', statErr);
+    }
+
+    return formatDisposeResult(activity, lead);
   }
 
   public static async getLeadHistory(
@@ -373,6 +413,15 @@ export class ActivityService {
       if (!isDuplicate) {
         deduplicated.push(act);
       }
+    }
+
+    const settings = await SettingService.getSettings();
+    if (settings.maskContactNumber && _requester.role === 'AGENT') {
+      return deduplicated.map((act) => {
+        const obj = act.toObject ? act.toObject() : { ...act };
+        obj.phone = maskPhoneNumber(obj.phone);
+        return obj as unknown as IActivityDoc;
+      });
     }
 
     return deduplicated;
@@ -432,23 +481,30 @@ export class ActivityService {
 
     const limitNum = query.limit ? Math.min(Number(query.limit) || 500, 1000) : 500;
 
-    const activities = await Activity.find(filter)
-      .sort({ createdAt: -1 })
-      .limit(limitNum)
-      .populate('leadId', 'name phone temperature tag stage')
-      .populate('userId', 'name email branch')
-      .lean();
+    const [activities, settings] = await Promise.all([
+      Activity.find(filter)
+        .sort({ createdAt: -1 })
+        .limit(limitNum)
+        .populate('leadId', 'name phone temperature tag stage')
+        .populate('userId', 'name email branch')
+        .lean(),
+      SettingService.getSettings(),
+    ]);
+
+    const shouldMask = requester.role === 'AGENT' && !!settings.maskContactNumber;
 
     return activities.map((rawAct) => {
       const act = rawAct as unknown as Record<string, unknown>;
       const leadObj = act.leadId && typeof act.leadId === 'object' ? (act.leadId as Record<string, unknown>) : null;
       const userObj = act.userId && typeof act.userId === 'object' ? (act.userId as Record<string, unknown>) : null;
 
+      const phone = (act.phone as string) || (leadObj?.phone as string) || '';
+      const maskedPhone = shouldMask ? maskPhoneNumber(phone) : phone;
+
       const customerName =
         (leadObj?.name as string) ||
-        (act.phone ? `Customer (${act.phone})` : 'Lead Contact');
+        (act.phone ? `Customer (${maskedPhone})` : 'Lead Contact');
 
-      const phone = (act.phone as string) || (leadObj?.phone as string) || '';
       const temperature = (act.tag as string) || (leadObj?.temperature as string) || (leadObj?.tag as string) || 'WARM';
 
       return {
@@ -458,7 +514,7 @@ export class ActivityService {
         userId: userObj?._id ? String(userObj._id) : act.userId ? String(act.userId) : requester._id.toString(),
         agentName: (userObj?.name as string) || requester.name,
         customerName,
-        phone,
+        phone: maskedPhone,
         type: act.type as 'CALL' | 'UPDATE',
         direction: (act.direction as 'OUTGOING' | 'INCOMING') || 'OUTGOING',
         connected: Boolean(act.connected),
@@ -516,5 +572,66 @@ export class ActivityService {
     ]);
 
     return stats;
+  }
+
+  public static async attachRecording(
+    requester: IUserDoc,
+    activityId: string,
+    recordingUrl: string,
+  ): Promise<IActivityDoc> {
+    if (!Types.ObjectId.isValid(activityId)) {
+      throw new AppError('Invalid activity ID format', 400);
+    }
+    const activity = await Activity.findById(activityId);
+    if (!activity) {
+      throw new AppError('Activity not found', 404);
+    }
+
+    if (requester.role === 'AGENT' && activity.userId.toString() !== requester._id.toString()) {
+      throw new AppError('Forbidden: You can only attach recordings to your own activities', 403);
+    }
+
+    activity.recordingUrl = recordingUrl;
+    await activity.save();
+
+    await AuditService.log({
+      userId: requester._id,
+      userEmail: requester.email,
+      userRole: requester.role,
+      action: 'ACTIVITY_RECORDING_ATTACH',
+      resourceType: 'LEAD',
+      resourceId: activity.leadId.toString(),
+      details: { activityId: activity._id.toString(), recordingUrl },
+    });
+
+    return activity;
+  }
+
+  public static async getRecording(
+    requester: IUserDoc,
+    activityId: string,
+  ): Promise<{ recordingUrl: string; durationSeconds: number }> {
+    if (!Types.ObjectId.isValid(activityId)) {
+      throw new AppError('Invalid activity ID format', 400);
+    }
+
+    const settings = await SettingService.getSettings();
+    if (settings.allowCallRecordingPlayback === false && requester.role !== 'ADMIN') {
+      throw new AppError('Forbidden: Call recording playback is disabled by policy', 403);
+    }
+
+    const activity = await Activity.findById(activityId);
+    if (!activity) {
+      throw new AppError('Activity not found', 404);
+    }
+
+    if (!activity.recordingUrl) {
+      throw new AppError('No recording available for this call', 404);
+    }
+
+    return {
+      recordingUrl: activity.recordingUrl,
+      durationSeconds: activity.durationSeconds || 0,
+    };
   }
 }

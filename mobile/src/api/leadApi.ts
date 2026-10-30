@@ -28,6 +28,7 @@ export interface MyLeadsParams {
   type?: LeadFilterType;
   campaignId?: string;
   userId?: string;
+  search?: string;
   page?: number;
   limit?: number;
 }
@@ -49,11 +50,37 @@ export const fetchMyLeads = async (params: MyLeadsParams): Promise<MyLeadsRespon
   if (params.userId) {
     queryParams.userId = params.userId;
   }
+  if (params.search) {
+    queryParams.search = params.search;
+  }
 
   const response = await apiClient.get<MyLeadsResponse>('/api/leads/my', {
     params: queryParams,
   });
   return response.data;
+};
+
+export interface MyLeadsCounts {
+  all: number;
+  new: number;
+  interested: number;
+  followup: number;
+  notConnected: number;
+  notInterested: number;
+}
+
+export const fetchMyLeadsCounts = async (params?: {
+  campaignId?: string;
+  userId?: string;
+}): Promise<MyLeadsCounts> => {
+  const queryParams: Record<string, string> = {};
+  if (params?.campaignId) queryParams.campaignId = params.campaignId;
+  if (params?.userId) queryParams.userId = params.userId;
+
+  const response = await apiClient.get<{ counts: MyLeadsCounts }>('/api/leads/my/counts', {
+    params: queryParams,
+  });
+  return response.data.counts;
 };
 
 /**
@@ -76,6 +103,87 @@ export const updateLeadDetails = async (
   payload: { name?: string; phone?: string; email?: string },
 ): Promise<{ lead: Lead }> => {
   const response = await apiClient.patch<{ lead: Lead }>(`/api/leads/${leadId}`, payload);
+  return response.data;
+};
+
+/**
+ * Resolves unmasked dial number for an authorized dial/messaging intent (Spec 4.9).
+ */
+export const fetchDialTarget = async (
+  leadId: string,
+): Promise<{ dialNumber: string; leadId: string }> => {
+  const response = await apiClient.post<{ status: string; dialNumber: string; leadId: string }>(
+    `/api/leads/${leadId}/dial`,
+  );
+  return response.data;
+};
+
+/**
+ * Bulk reassign leads from one user to another.
+ */
+export const bulkReassignLeads = async (payload: {
+  fromUserId: string;
+  toUserId: string;
+  campaignId?: string;
+}): Promise<{ modifiedCount: number }> => {
+  const response = await apiClient.post<{ modifiedCount: number }>('/api/leads/bulk-reassign', payload);
+  return response.data;
+};
+
+/**
+ * Bulk update stage, tag, or status for multiple leads.
+ */
+export const bulkUpdateLeads = async (payload: {
+  leadIds: string[];
+  stage?: string;
+  tag?: string;
+  status?: 'OPEN' | 'CLOSED';
+}): Promise<{ status: string; modifiedCount: number }> => {
+  const response = await apiClient.post<{ status: string; modifiedCount: number }>('/api/leads/bulk-update', payload);
+  return response.data;
+};
+
+/**
+ * Bulk move leads to another campaign.
+ */
+export const bulkMoveLeads = async (payload: {
+  leadIds: string[];
+  targetCampaignId: string;
+}): Promise<{ status: string; modifiedCount: number }> => {
+  const response = await apiClient.post<{ status: string; modifiedCount: number }>('/api/leads/bulk-move', payload);
+  return response.data;
+};
+
+/**
+ * Bulk copy (duplicate) leads into another campaign.
+ */
+export const bulkCopyLeads = async (payload: {
+  leadIds: string[];
+  targetCampaignId: string;
+}): Promise<{ status: string; copiedCount: number }> => {
+  const response = await apiClient.post<{ status: string; copiedCount: number }>('/api/leads/bulk-copy', payload);
+  return response.data;
+};
+
+/**
+ * Bulk close leads.
+ */
+export const bulkCloseLeads = async (payload: {
+  leadIds: string[];
+  reason?: string;
+}): Promise<{ status: string; closedCount: number }> => {
+  const response = await apiClient.post<{ status: string; closedCount: number }>('/api/leads/bulk-close', payload);
+  return response.data;
+};
+
+/**
+ * Bulk delete leads (Admin only, requires typed confirmation "DELETE").
+ */
+export const bulkDeleteLeads = async (payload: {
+  leadIds: string[];
+  confirmation: 'DELETE';
+}): Promise<{ status: string; deletedCount: number }> => {
+  const response = await apiClient.post<{ status: string; deletedCount: number }>('/api/leads/bulk-delete', payload);
   return response.data;
 };
 
@@ -151,6 +259,43 @@ export const fetchCampaignById = async (
   );
   return response.data;
 };
+
+export interface CampaignStatsResult {
+  stats: {
+    total: number;
+    open: number;
+    inProgress: number;
+    closed: number;
+    followUp: number;
+    notConnected: number;
+    converted: number;
+    lost: number;
+    closedBySystem: number;
+  };
+  agentDistribution: Array<{
+    agentId: string;
+    agentName: string;
+    total: number;
+    open: number;
+    followUp: number;
+    notConnected: number;
+    closed: number;
+  }>;
+}
+
+/**
+ * Fetches lightweight, server-aggregated stats and agent distribution for a campaign.
+ * Zero lead documents are transferred over the wire.
+ */
+export const fetchCampaignStats = async (
+  campaignId: string,
+): Promise<CampaignStatsResult> => {
+  const response = await apiClient.get<CampaignStatsResult>(
+    `/api/campaigns/${campaignId}/stats`,
+  );
+  return response.data;
+};
+
 
 /**
  * Creates a single walk-in lead under a designated campaign.
@@ -469,12 +614,7 @@ export const fetchAdminSettings = async (): Promise<{ settings: Setting }> => {
 /**
  * Updates organization settings (ADMIN & MANAGER).
  */
-export const updateAdminSettings = async (data: {
-  allowDisposeWithoutFollowUp?: boolean;
-  followUpMandatoryForNotConnected?: boolean;
-  autoLeadDistribution?: boolean;
-  reassignAfterHours?: number;
-}): Promise<{ settings: Setting }> => {
+export const updateAdminSettings = async (data: Partial<Setting>): Promise<{ settings: Setting }> => {
   const response = await apiClient.patch<{ settings: Setting }>('/api/settings', data);
   return response.data;
 };
@@ -657,3 +797,126 @@ export const fetchTaggedLeads = async (): Promise<TaggedLeadResponse[]> => {
 export const dismissTaggedLead = async (tagId: string): Promise<void> => {
   await apiClient.post(`/api/leads/tagged/${tagId}/dismiss`);
 };
+
+export interface TodayStatsResponse {
+  userId: string;
+  dayIST: string;
+  attempts: number;
+  connected: number;
+  notConnected: number;
+  talkSeconds: number;
+  incoming: number;
+  noAttempt: number;
+  mismatches: number;
+  connectRate: number;
+  firstCallAt: string | null;
+  lastCallAt: string | null;
+  asOf: string;
+}
+
+export interface TeamStatsResponse {
+  stats: Array<{
+    userId: string;
+    name: string;
+    email: string;
+    branch: string | null;
+    attempts: number;
+    connected: number;
+    notConnected: number;
+    talkSeconds: number;
+    incoming: number;
+    noAttempt: number;
+    mismatches: number;
+    connectRate: number;
+  }>;
+  date: string;
+  asOf: string;
+}
+
+/**
+ * Fetches today's atomic calling stats for the authenticated user from DailyStat.
+ */
+export const fetchTodayStats = async (date?: string): Promise<TodayStatsResponse> => {
+  const response = await apiClient.get<TodayStatsResponse>('/api/stats/today', {
+    params: date ? { date } : undefined,
+  });
+  return response.data;
+};
+
+/**
+ * Fetches team stats for managers and admins from DailyStat.
+ */
+export const fetchTeamStats = async (params: {
+  date?: string;
+  branch?: string;
+  campaignId?: string;
+}): Promise<TeamStatsResponse> => {
+  const response = await apiClient.get<TeamStatsResponse>('/api/stats/team', {
+    params,
+  });
+  return response.data;
+};
+
+/**
+ * Fetches date-range stats for reports and trends from DailyStat.
+ */
+export const fetchRangeStats = async (params: {
+  from: string;
+  to: string;
+  branch?: string;
+  campaignId?: string;
+}): Promise<{ data: any[]; asOf: string }> => {
+  const response = await apiClient.get<{ data: any[]; asOf: string }>('/api/stats/range', {
+    params,
+  });
+  return response.data;
+};
+
+/**
+ * Flushes offline activities in an idempotent batch (max 50 items).
+ */
+export const batchSyncActivities = async (
+  events: any[],
+): Promise<{ results: any[]; total: number; succeeded: number }> => {
+  const response = await apiClient.post<{ results: any[]; total: number; succeeded: number }>(
+    '/api/sync/batch',
+    { events },
+  );
+  return response.data;
+};
+
+export interface NextLeadParams {
+  mode: 'PRIORITY' | 'CAMPAIGN' | 'MY_LEADS' | 'FILTER';
+  campaignId?: string;
+  statusQueue?: 'ALL' | 'NEW' | 'FOLLOW_UP' | 'NOT_CONNECTED' | 'INTERESTED';
+  stage?: string;
+  tag?: string;
+  excludeLeadIds?: string[];
+  leaseSeconds?: number;
+}
+
+export interface NextLeadResponse {
+  status: 'success';
+  lead: Lead | null;
+  remainingCount: number;
+}
+
+/**
+ * Fetches the next lead atomically for unified calling desk with lease lock (Spec 4.2).
+ */
+export const fetchNextLead = async (params: NextLeadParams): Promise<NextLeadResponse> => {
+  const response = await apiClient.post<NextLeadResponse>('/api/leads/next', params);
+  return response.data;
+};
+
+/**
+ * Releases lease lock on a lead if dialing was cancelled without attempt.
+ */
+export const unlockLead = async (leadId: string): Promise<{ status: string; unlocked: boolean }> => {
+  const response = await apiClient.post<{ status: string; unlocked: boolean }>(
+    `/api/leads/${leadId}/unlock`,
+  );
+  return response.data;
+};
+
+

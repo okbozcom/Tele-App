@@ -11,6 +11,11 @@ import reportRoutes from './report.routes';
 import branchRoutes from './branch.routes';
 import auditRoutes from './audit.routes';
 import agentBreakRoutes from './agent-break.routes';
+import statRoutes from './stat.routes';
+import syncRoutes from './sync.routes';
+import taskRoutes from './task.routes';
+import { workSessionRoutes } from './work-session.routes';
+import { notificationRoutes } from './notification.routes';
 
 const router = Router();
 
@@ -21,9 +26,14 @@ router.use('/pipelines', pipelineRoutes);
 router.use('/campaigns/:id/leads', campaignLeadsRouter);
 router.use('/campaigns', campaignRoutes);
 router.use('/leads', leadsRouter);
+router.use('/tasks', taskRoutes);
+router.use('/sessions', workSessionRoutes);
+router.use('/notifications', notificationRoutes);
 router.use('/settings', settingRoutes);
 router.use('/retry-rules', retryRuleRoutes);
 router.use('/reports', reportRoutes);
+router.use('/stats', statRoutes);
+router.use('/sync', syncRoutes);
 router.use('/branches', branchRoutes);
 router.use('/audit-logs', auditRoutes);
 router.use('/breaks', agentBreakRoutes);

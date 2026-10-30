@@ -16,6 +16,7 @@ import {
   User as UserIcon,
   MessageSquare,
   MapPin,
+  BookmarkCheck,
 } from 'lucide-react-native';
 import { Activity } from '../types';
 import { colors } from '../theme';
@@ -292,6 +293,11 @@ export const LeadTimeline: React.FC<LeadTimelineProps> = ({
                       <Snowflake size={11} color="#2563EB" />
                       <Text style={styles.coldBadgeText}>Cold Lead</Text>
                     </View>
+                  ) : act.tag ? (
+                    <View style={styles.generalTagBadge}>
+                      <BookmarkCheck size={11} color="#4F46E5" />
+                      <Text style={styles.generalTagBadgeText}>{act.tag}</Text>
+                    </View>
                   ) : null}
                 </View>
 
@@ -300,6 +306,21 @@ export const LeadTimeline: React.FC<LeadTimelineProps> = ({
                   <View style={styles.remarkContainer}>
                     <MessageSquare size={12} color="#64748B" style={{ marginTop: 2 }} />
                     <Text style={styles.remarkText}>{act.remark}</Text>
+                  </View>
+                ) : null}
+
+                {/* Engagement Form Answers */}
+                {act.answers && act.answers.length > 0 ? (
+                  <View style={styles.answersContainer}>
+                    <Text style={styles.answersHeading}>Engagement Form Answers:</Text>
+                    {act.answers.map((ans, aIdx) => (
+                      <View key={aIdx} style={styles.answerRow}>
+                        <Text style={styles.answerQuestion}>{ans.questionId}: </Text>
+                        <Text style={styles.answerValue}>
+                          {Array.isArray(ans.value) ? ans.value.join(', ') : String(ans.value ?? '')}
+                        </Text>
+                      </View>
+                    ))}
                   </View>
                 ) : null}
 
@@ -632,5 +653,48 @@ const styles = StyleSheet.create({
   followUpText: {
     fontSize: 10,
     color: '#B45309',
+  },
+  generalTagBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#EEF2FF',
+    borderWidth: 1,
+    borderColor: '#C7D2FE',
+    paddingHorizontal: 7,
+    paddingVertical: 2,
+    borderRadius: 6,
+    gap: 3,
+  },
+  generalTagBadgeText: {
+    fontSize: 10,
+    fontWeight: '700',
+    color: '#4F46E5',
+  },
+  answersContainer: {
+    backgroundColor: '#F8FAFC',
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+    padding: 8,
+    gap: 4,
+  },
+  answersHeading: {
+    fontSize: 10.5,
+    fontWeight: '700',
+    color: '#475569',
+    marginBottom: 2,
+  },
+  answerRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+  },
+  answerQuestion: {
+    fontSize: 10.5,
+    fontWeight: '600',
+    color: '#334155',
+  },
+  answerValue: {
+    fontSize: 10.5,
+    color: '#0F172A',
   },
 });

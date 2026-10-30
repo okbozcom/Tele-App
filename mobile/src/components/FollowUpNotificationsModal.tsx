@@ -48,10 +48,12 @@ interface NotificationFollowUp {
   name: string;
   phone: string;
   stage: string;
+  tag?: string;
   temperature: 'HOT' | 'WARM' | 'COLD';
   timeLabel: string;
   isToday: boolean;
   isOverdue: boolean;
+  isWithin24Hours: boolean;
   branch?: string;
   agentName?: string;
   attempts: number;
@@ -69,7 +71,7 @@ export const FollowUpNotificationsModal: React.FC<FollowUpNotificationsModalProp
   const navigation = useNavigation<any>();
   const { user } = useAuthStore();
   const { markAsRead, markAllAsRead, isRead, unreadCount, setTotalRemindersCount } = useNotificationStore();
-  const [activeFilter, setActiveFilter] = useState<'ALL' | 'TODAY' | 'UPCOMING'>('ALL');
+  const [activeFilter, setActiveFilter] = useState<'ALL' | '24H' | 'TODAY' | 'UPCOMING'>('ALL');
   const [searchQuery, setSearchQuery] = useState('');
 
   // Selected lead for LeadQuickModal or WhatsAppTemplateModal
@@ -235,12 +237,14 @@ export const FollowUpNotificationsModal: React.FC<FollowUpNotificationsModalProp
       let timeLabel = 'Callback scheduled';
       let isToday = false;
       let isOverdue = false;
+      let isWithin24Hours = false;
 
       if (l.nextFollowUpAt) {
         const d = new Date(l.nextFollowUpAt);
         if (!isNaN(d.getTime())) {
           isToday = d.getTime() >= startOfToday && d.getTime() <= endOfToday;
           isOverdue = d.getTime() < now.getTime();
+          isWithin24Hours = Math.abs(d.getTime() - now.getTime()) <= 24 * 60 * 60 * 1000;
           timeLabel = `${isToday ? 'Today' : d.toLocaleDateString([], { month: 'short', day: 'numeric' })} at ${d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`;
         }
       }
@@ -252,10 +256,12 @@ export const FollowUpNotificationsModal: React.FC<FollowUpNotificationsModalProp
         name: l.name,
         phone: l.phone,
         stage: l.stage || 'Follow Up',
+        tag: l.tag || undefined,
         temperature: temp,
         timeLabel,
         isToday,
         isOverdue,
+        isWithin24Hours,
         branch: l.branch || user?.branch || undefined,
         agentName: typeof l.assignedTo === 'object' && l.assignedTo ? (l.assignedTo as any).name : user?.name,
         attempts: l.attemptCount || 1,
@@ -271,6 +277,7 @@ export const FollowUpNotificationsModal: React.FC<FollowUpNotificationsModalProp
         if (!isNaN(d.getTime())) {
           const isToday = d.getTime() >= startOfToday && d.getTime() <= endOfToday;
           const isOverdue = d.getTime() < now.getTime();
+          const isWithin24Hours = Math.abs(d.getTime() - now.getTime()) <= 24 * 60 * 60 * 1000;
           const timeLabel = `${isToday ? 'Today' : d.toLocaleDateString([], { month: 'short', day: 'numeric' })} at ${d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`;
 
           list.push({
@@ -282,6 +289,7 @@ export const FollowUpNotificationsModal: React.FC<FollowUpNotificationsModalProp
             timeLabel,
             isToday,
             isOverdue,
+            isWithin24Hours,
             branch: act.branch || user?.branch || undefined,
             agentName: user?.name,
             attempts: 1,
@@ -303,6 +311,7 @@ export const FollowUpNotificationsModal: React.FC<FollowUpNotificationsModalProp
   // Filtered Reminders
   const filteredList = useMemo(() => {
     return allReminders.filter((item) => {
+      if (activeFilter === '24H' && !item.isWithin24Hours) return false;
       if (activeFilter === 'TODAY' && !item.isToday) return false;
       if (activeFilter === 'UPCOMING' && item.isToday) return false;
 
@@ -432,7 +441,7 @@ export const FollowUpNotificationsModal: React.FC<FollowUpNotificationsModalProp
             )}
           </View>
 
-          {/* Filter Pills: All | Due Today | Upcoming */}
+          {/* Filter Pills: All | 24 Hours | Due Today | Upcoming */}
           <View style={styles.filterPillsRow}>
             <TouchableOpacity
               style={[styles.pillBtn, activeFilter === 'ALL' && styles.pillBtnActive]}
@@ -443,6 +452,18 @@ export const FollowUpNotificationsModal: React.FC<FollowUpNotificationsModalProp
                 style={[styles.pillText, activeFilter === 'ALL' && styles.pillTextActive]}
               >
                 All ({allReminders.length})
+              </Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={[styles.pillBtn, activeFilter === '24H' && styles.pillBtnActive]}
+              onPress={() => setActiveFilter('24H')}
+              activeOpacity={0.7}
+            >
+              <Text
+                style={[styles.pillText, activeFilter === '24H' && styles.pillTextActive]}
+              >
+                24h ({allReminders.filter((r) => r.isWithin24Hours).length})
               </Text>
             </TouchableOpacity>
 
@@ -633,7 +654,7 @@ export const FollowUpNotificationsModal: React.FC<FollowUpNotificationsModalProp
                                 },
                               ]}
                             >
-                              {item.temperature}
+                              {item.tag || item.temperature}
                             </Text>
                           </View>
                         </View>

@@ -49,6 +49,7 @@ export interface Lead {
   attemptCount: number;
   dealAmount?: number | null;
   currency?: string | null;
+  isMasked?: boolean;
   createdAt: string;
   updatedAt: string;
 }
@@ -141,6 +142,13 @@ export interface Setting {
   followUpMandatoryForNotConnected: boolean;
   autoLeadDistribution?: boolean;
   reassignAfterHours?: number;
+  breakNotificationThresholdMinutes?: number;
+  enableAutoCallDialing?: boolean;
+  autoCallDialingDelaySeconds?: number;
+  maskContactNumber?: boolean;
+  displayStartCallingButton?: boolean;
+  allowCallRecordingPlayback?: boolean;
+  preferredSimSlot?: number | null;
   createdAt?: string;
   updatedAt?: string;
 }
@@ -165,7 +173,13 @@ export interface LeadCampaignSummary {
   engagementForm?: EngagementQuestion[];
 }
 
-export type LeadFilterType = 'ALL' | 'NEW' | 'FOLLOW_UP' | 'NOT_CONNECTED';
+export type LeadFilterType =
+  | 'ALL'
+  | 'NEW'
+  | 'FOLLOW_UP'
+  | 'NOT_CONNECTED'
+  | 'INTERESTED'
+  | 'NOT_INTERESTED';
 
 export interface DisposeLeadPayload {
   phone?: string | null;
@@ -178,6 +192,13 @@ export interface DisposeLeadPayload {
   remark?: string | null;
   durationSeconds?: number;
   direction?: 'OUTGOING' | 'INCOMING';
+  clientEventId?: string | null;
+  startedAt?: string | null;
+  endedAt?: string | null;
+  durationSource?: 'DEVICE_CALL_LOG' | 'APP_ESTIMATE';
+  dispositionMismatch?: boolean;
+  noAttempt?: boolean;
+  clientTimestamp?: string | null;
   idempotencyKey?: string | null;
   callLogId?: string | null;
   classificationReason?: string | null;
@@ -230,6 +251,26 @@ export interface DetectedCallResult {
   simId?: string;
 }
 
+export interface Task {
+  _id: string;
+  title: string;
+  description?: string;
+  leadId: string;
+  leadName?: string;
+  leadPhone?: string;
+  assignedTo: string;
+  assignedToName?: string;
+  reportedBy: string;
+  reportedByName?: string;
+  dueDate: string;
+  priority: 'LOW' | 'MEDIUM' | 'HIGH';
+  status: 'PENDING' | 'COMPLETED';
+  completedAt?: string;
+  branch?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
 export type RootStackParamList = {
   Login: undefined;
   CampaignSelect: undefined;
@@ -248,6 +289,7 @@ export type RootStackParamList = {
   CampaignDetail: { campaignId?: string; campaignName?: string; campaign?: Campaign } | undefined;
   UploadLeads: undefined;
   Settings: undefined;
+  Tasks: undefined;
   Diagnostics: undefined;
   RetryRules: undefined;
   AddWalkInLead: { campaignId?: string; phone?: string; name?: string } | undefined;
@@ -256,15 +298,36 @@ export type RootStackParamList = {
     queue?: Lead[];
     queueIndex?: number;
     initialTab?: 'LEAD INFO' | 'CAPTURE INFO' | 'DISPOSE LEAD' | 'OTHER';
+    callDurationSeconds?: number;
+    isCallConnected?: boolean;
+    callAttempt?: boolean;
+    detectionMethod?: 'AUTOMATIC' | 'MANUAL' | 'RECOVERED_SESSION';
+    autoOpenNotConnectedSheet?: boolean;
+    idempotencyKey?: string;
+    clientEventId?: string;
+    startedAt?: string;
+    durationSource?: 'DEVICE_CALL_LOG' | 'APP_ESTIMATE';
+    dispositionMismatch?: boolean;
+    noAttempt?: boolean;
+    clientTimestamp?: string;
+    callLogId?: string;
+    direction?: 'OUTGOING' | 'INCOMING';
+    classificationReason?: string;
   };
   Dispose: {
     lead: Lead;
     callDurationSeconds?: number;
     isCallConnected?: boolean;
     callAttempt?: boolean;
-    detectionMethod?: 'AUTOMATIC' | 'MANUAL';
+    detectionMethod?: 'AUTOMATIC' | 'MANUAL' | 'RECOVERED_SESSION';
     autoOpenNotConnectedSheet?: boolean;
     idempotencyKey?: string;
+    clientEventId?: string;
+    startedAt?: string;
+    durationSource?: 'DEVICE_CALL_LOG' | 'APP_ESTIMATE';
+    dispositionMismatch?: boolean;
+    noAttempt?: boolean;
+    clientTimestamp?: string;
     callLogId?: string;
     direction?: 'OUTGOING' | 'INCOMING';
     classificationReason?: string;
