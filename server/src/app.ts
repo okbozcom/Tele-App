@@ -1,5 +1,6 @@
 import express, { Application, Request, Response, NextFunction } from 'express';
 import path from 'path';
+import fs from 'fs';
 import cors from 'cors';
 import helmet from 'helmet';
 import morgan from 'morgan';
@@ -36,6 +37,14 @@ const publicDir = path.join(__dirname, '../public');
 app.use(express.static(publicDir));
 
 app.get('/', (_req: Request, res: Response) => {
+  const indexPath = path.join(publicDir, 'index.html');
+  if (fs.existsSync(indexPath)) {
+    return res.sendFile(indexPath);
+  }
+  const landingPath = path.join(publicDir, 'landing.html');
+  if (fs.existsSync(landingPath)) {
+    return res.sendFile(landingPath);
+  }
   res.status(200).json({
     status: 'success',
     message: 'Hi Talk Telecalling CRM API Server is Live & Running!',
@@ -71,8 +80,15 @@ app.use('/api', apiLimiter);
 app.use('/api/api', apiRoutes);
 app.use('/api', apiRoutes);
 
-// Catch-all for undefined routes
-app.all('*', (req: Request, _res: Response, next: NextFunction) => {
+// Catch-all for undefined routes: SPA fallback for client-side routing
+app.all('*', (req: Request, res: Response, next: NextFunction) => {
+  if (req.originalUrl.startsWith('/api')) {
+    return next(new AppError(`Cannot find ${req.originalUrl} on this server`, 404));
+  }
+  const indexPath = path.join(publicDir, 'index.html');
+  if (fs.existsSync(indexPath)) {
+    return res.sendFile(indexPath);
+  }
   next(new AppError(`Cannot find ${req.originalUrl} on this server`, 404));
 });
 
