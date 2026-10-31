@@ -3,6 +3,7 @@ import { callService } from './call.service';
 import { useLeadHistoryStore, normalizePhone } from '../store/leadHistoryStore';
 import { useAuthStore } from '../store/authStore';
 import { formatDisplayPhone } from '../utils/phoneUtils';
+import { apiClient } from '../api/client';
 
 export class IncomingCallSyncService {
   private isSyncing = false;
@@ -117,32 +118,43 @@ export class IncomingCallSyncService {
         // Only log incoming/missed calls that match an existing lead or contact in the CRM.
         // Unrelated personal calls from non-leads must NEVER be persisted, uploaded, or exposed!
         const leadMatch = existingActivities.find(
-          (a) =>
-            a.phone &&
-            normalizePhone(a.phone) === normPhone &&
-            a.customerName &&
-            !a.customerName.startsWith('Customer ('),
+          (a) => a.phone && normalizePhone(a.phone) === normPhone,
         );
 
         let customerName = leadMatch?.customerName;
         let leadId = leadMatch?.leadId;
 
+        // Check storage caches (support both user-keyed and global cache keys)
         if (!customerName || !leadId) {
           try {
             const { storage } = require('../utils/storage');
-            const cachedRaw = await storage.getItem('tele_crm_my_leads_cache_v2');
-            if (cachedRaw) {
-              const parsed = JSON.parse(cachedRaw);
-              const foundInLeads = (parsed.leads || []).find(
-                (l: { phone?: string; name?: string; _id?: string }) =>
-                  l.phone && normalizePhone(l.phone) === normPhone,
-              );
-              if (foundInLeads) {
-                customerName = foundInLeads.name;
-                leadId = foundInLeads._id;
+            const keysToCheck = [
+              user?._id ? `tele_crm_my_leads_cache_v2_${user._id}` : null,
+              'tele_crm_my_leads_cache_v2',
+            ].filter(Boolean) as string[];
+
+            for (const cacheKey of keysToCheck) {
+              const cachedRaw = await storage.getItem(cacheKey);
+              if (cachedRaw) {
+                const parsed = JSON.parse(cachedRaw);
+                const foundInLeads = (parsed.leads || []).find(
+                  (l: { phone?: string; name?: string; _id?: string }) =>
+                    l.phone && normalizePhone(l.phone) === normPhone,
+                );
+                if (foundInLeads) {
+                  customerName = foundInLeads.name;
+                  leadId = foundInLeads._id;
+                  break;
+                }
               }
             }
           } catch {}
+        }
+
+        // If matched from existing activity but lacked synthetic ID, assign deterministic lead ID
+        if (!leadId && leadMatch) {
+          leadId = leadMatch.leadId || `dial-${normPhone}`;
+          customerName = leadMatch.customerName || (rawPhone ? formatDisplayPhone(rawPhone) : 'Customer');
         }
 
         // If STILL not matching any known CRM lead, discard: it is a personal call!
@@ -171,6 +183,27 @@ export class IncomingCallSyncService {
           classificationReason: isMissed ? 'INBOUND_MISSED' : 'INBOUND_ANSWERED',
           createdAt: new Date(timestamp).toISOString(),
         });
+
+        // Persist incoming call directly to server so it is counted in dashboard and metrics
+        apiClient
+          .post(`/api/leads/${leadId}/dispose`, {
+            phone: rawPhone,
+            connected: isConnected,
+            stage: isConnected ? 'Connected' : 'Not Connected',
+            tag: tag || 'Warm',
+            remark,
+            durationSeconds,
+            direction: 'INCOMING',
+            callAttempt: true,
+            callerSource: 'INCOMING_CALL',
+            clientEventId: idempotencyKey,
+            idempotencyKey,
+            startedAt: new Date(timestamp).toISOString(),
+            clientTimestamp: new Date(timestamp).toISOString(),
+          })
+          .catch((err) => {
+            console.warn('[IncomingCallSyncService] Server sync for incoming call skipped/failed:', err?.message);
+          });
 
         addedCount++;
       }

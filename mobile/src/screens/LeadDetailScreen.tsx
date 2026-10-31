@@ -239,6 +239,7 @@ export const LeadDetailScreen: React.FC = () => {
   const [isCallAttempt, setIsCallAttempt] = useState<boolean>(
     route.name === 'Dispose' && routeParams.callAttempt === true,
   );
+  const [disposedCount, setDisposedCount] = useState<number>(0);
   const [showPermissionModal, setShowPermissionModal] = useState<boolean>(false);
   const scrollViewRef = useRef<ScrollView>(null);
 
@@ -733,7 +734,10 @@ export const LeadDetailScreen: React.FC = () => {
         reassignToUserId: actionReassign && selectedReassignUserId ? selectedReassignUserId : undefined,
         copyToCampaignId: actionCopyCampaign && selectedCopyCampaignId ? selectedCopyCampaignId : undefined,
         direction: routeParams.direction || 'OUTGOING',
-        clientEventId: routeParams.clientEventId || null,
+        clientEventId:
+          disposedCount === 0 && routeParams.clientEventId
+            ? routeParams.clientEventId
+            : `evt_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
         startedAt: routeParams.startedAt || null,
         durationSource: routeParams.durationSource || 'APP_ESTIMATE',
         dispositionMismatch:
@@ -743,7 +747,10 @@ export const LeadDetailScreen: React.FC = () => {
         noAttempt: !isCallAttempt,
         clientTimestamp: routeParams.startedAt || new Date().toISOString(),
         callLogId: routeParams.callLogId,
-        idempotencyKey: routeParams.idempotencyKey || (`disp_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`),
+        idempotencyKey:
+          disposedCount === 0 && routeParams.idempotencyKey
+            ? routeParams.idempotencyKey
+            : `disp_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
         classificationReason: routeParams.classificationReason,
         dealAmount: dealAmount.trim() ? parseFloat(dealAmount) : undefined,
         currency: currency || 'INR',
@@ -866,6 +873,7 @@ export const LeadDetailScreen: React.FC = () => {
       if (data?.lead) {
         setCurrentLead(data.lead);
       }
+      setDisposedCount((prev) => prev + 1);
 
       queryClient.invalidateQueries({ queryKey: ['myLeads'] });
       queryClient.invalidateQueries({ queryKey: ['myLeadsList'] });

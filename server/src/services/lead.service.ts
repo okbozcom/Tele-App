@@ -142,10 +142,12 @@ export class LeadService {
   ): Promise<PaginatedLeads<unknown>> {
     const matchStage: Record<string, unknown> = {};
 
-    // Closed leads belong in reporting/management views, never in an agent's calling queue.
+    // Closed leads belong in reporting/management views, never in an agent's active queues (except ALL and NOT_INTERESTED).
     if (requester.role === 'AGENT') {
-      matchStage.status = 'OPEN';
-      matchStage.stage = { $not: /not interested|closed|lost|dnd|do not call|junk|dropped/i };
+      if (query.type !== 'ALL' && query.type !== 'NOT_INTERESTED') {
+        matchStage.status = 'OPEN';
+        matchStage.stage = { $not: /not interested|closed|lost|dnd|do not call|junk|dropped/i };
+      }
     }
 
     if (requester.role === 'ADMIN') {
@@ -230,6 +232,9 @@ export class LeadService {
         { status: 'CLOSED' },
         { stage: { $regex: /not interested|closed|lost|rejected/i } },
       ];
+    } else if (query.type === 'ALL') {
+      delete matchStage.status;
+      delete matchStage.stage;
     }
 
     if (query.search && query.search.trim()) {
@@ -496,15 +501,7 @@ export class LeadService {
       { $match: baseMatch },
       {
         $facet: {
-          all: [
-            {
-              $match: {
-                status: 'OPEN',
-                stage: { $not: /not interested|closed|lost|rejected/i },
-              },
-            },
-            { $count: 'count' },
-          ],
+          all: [{ $count: 'count' }],
           new: [
             {
               $match: {

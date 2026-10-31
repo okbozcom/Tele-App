@@ -600,9 +600,7 @@ const MyLeadsScreenContent: React.FC = () => {
 
       // Status filter when not searching
       if (selectedFilter === 'All') {
-        if (isLost) {
-          return false;
-        }
+        return true;
       } else if (selectedFilter === 'Not Interested') {
         if (!isLost) {
           return false;

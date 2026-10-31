@@ -42,22 +42,23 @@ export const deduplicateActivities = (activities: Activity[]): Activity[] => {
         return true;
       }
 
-      // CRITICAL FIX: If BOTH are distinct persistent MongoDB server activities,
-      // they represent distinct calls saved in the database. Never collapse them!
-      const isActServer = !act._id.startsWith('act-') && !act._id.startsWith('inc-') && act._id.length === 24;
-      const isRServer = !r._id.startsWith('act-') && !r._id.startsWith('inc-') && r._id.length === 24;
-      if (isActServer && isRServer && act._id !== r._id) {
+      // Reconcile local optimistic activity with its server persistent counterpart
+      const isActLocal = act._id.startsWith('act-') || act._id.startsWith('local_') || act._id.startsWith('inc-');
+      const isRLocal = r._id.startsWith('act-') || r._id.startsWith('local_') || r._id.startsWith('inc-');
+
+      // If both are server activities or both are local activities, they are separate distinct calls - never merge!
+      if (isActLocal === isRLocal) {
         return false;
       }
 
-      // If one is local optimistic and one is server, or both are local, fallback to phone + exact timestamp (within 90s) and direction
+      // One is local optimistic and one is server: reconcile if within 15 seconds
       const rPhone = normalizePhone(r.phone);
       if (!phone || !rPhone || phone !== rPhone) return false;
       const actDir = (act as any).direction || 'OUTGOING';
       const rDir = (r as any).direction || 'OUTGOING';
       if (actDir !== rDir) return false;
       const rTime = new Date(r.createdAt).getTime();
-      return Math.abs(actTime - rTime) <= 90000;
+      return Math.abs(actTime - rTime) <= 15000;
     });
 
     if (existingIndex >= 0) {
@@ -444,19 +445,28 @@ export const useLeadHistoryStore = create<LeadHistoryStore>((set, get) => ({
       ...(normPhone && currentMap[normPhone] ? currentMap[normPhone] : []),
     ];
 
+    // Match an existing in-progress placeholder ("Dialing") or exact idempotencyKey/callLogId
     const recentIndex = existingList.findIndex((a) => {
       if (!a) return false;
-      const ageMs = Date.now() - new Date(a.createdAt).getTime();
-      if (ageMs > 300000) return false;
-
-      // Match direction so incoming and outgoing calls are kept separate
-      const aDir = a.direction || 'OUTGOING';
-      const targetDir = data.direction || 'OUTGOING';
-      if (aDir !== targetDir) return false;
-
-      // Phone match takes absolute priority
-      if (normPhone && a.phone && normalizePhone(a.phone) === normPhone) return true;
-      if (leadId && a.leadId && a.leadId === leadId) return true;
+      // 1. Direct match on idempotencyKey or callLogId
+      if (data.idempotencyKey && a.idempotencyKey && data.idempotencyKey === a.idempotencyKey) {
+        return true;
+      }
+      if (data.callLogId && a.callLogId && data.callLogId === a.callLogId) {
+        return true;
+      }
+      // 2. Only update if the existing entry was an in-progress placeholder ("Dialing")
+      if (a.stage === 'Dialing') {
+        const ageMs = Date.now() - new Date(a.createdAt).getTime();
+        if (ageMs <= 600000) {
+          const aDir = a.direction || 'OUTGOING';
+          const targetDir = data.direction || 'OUTGOING';
+          if (aDir === targetDir) {
+            if (normPhone && a.phone && normalizePhone(a.phone) === normPhone) return true;
+            if (leadId && a.leadId && a.leadId === leadId) return true;
+          }
+        }
+      }
       return false;
     });
 

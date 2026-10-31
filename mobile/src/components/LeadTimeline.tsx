@@ -34,25 +34,26 @@ export const deduplicateActivities = (list: Activity[]): Activity[] => {
   for (const act of sorted) {
     const actTime = new Date(act.createdAt).getTime();
 
-    // Check if an identical or near-identical activity already exists in result within 120 seconds
+    // Check if an identical activity already exists in result
     const isDuplicate = result.some((existing) => {
       // 1. Exact ID match
       if (existing._id && act._id && existing._id === act._id) return true;
 
-      // 2. Same lead & same stage & created within 120 seconds of each other
-      const existingTime = new Date(existing.createdAt).getTime();
-      const timeDiff = Math.abs(existingTime - actTime);
+      // 2. Exact match on idempotencyKey or callLogId
+      if (act.idempotencyKey && existing.idempotencyKey && act.idempotencyKey === existing.idempotencyKey) {
+        return true;
+      }
+      if (act.callLogId && existing.callLogId && act.callLogId === existing.callLogId) {
+        return true;
+      }
 
-      if (timeDiff < 120000) {
-        const sameStage = (existing.stage || '').toLowerCase().trim() === (act.stage || '').toLowerCase().trim();
-        const sameConnected = existing.connected === act.connected;
-
-        if (existing.type === act.type && sameStage && sameConnected) {
-          return true;
-        }
-
-        // If same connected status and both are calls within 60 seconds
-        if (existing.type === act.type && sameConnected && timeDiff < 60000) {
+      // 3. Reconcile local optimistic vs server persistent copy of the exact same event
+      const isActLocal = act._id?.startsWith('act-') || act._id?.startsWith('local_') || act._id?.startsWith('inc-');
+      const isExistingLocal = existing._id?.startsWith('act-') || existing._id?.startsWith('local_') || existing._id?.startsWith('inc-');
+      if (isActLocal !== isExistingLocal) {
+        const existingTime = new Date(existing.createdAt).getTime();
+        const timeDiff = Math.abs(existingTime - actTime);
+        if (timeDiff <= 15000 && existing.connected === act.connected) {
           return true;
         }
       }
