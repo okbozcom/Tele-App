@@ -11,6 +11,7 @@ import {
   Modal,
   Switch,
   useWindowDimensions,
+  Platform,
 } from 'react-native';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
@@ -84,6 +85,7 @@ export const CampaignsScreen: React.FC = () => {
 
   const [showModal, setShowModal] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
+  const [campaignToDelete, setCampaignToDelete] = useState<{ id: string; name: string } | null>(null);
 
   // Form State
   const [name, setName] = useState('');
@@ -206,27 +208,26 @@ export const CampaignsScreen: React.FC = () => {
       queryClient.invalidateQueries({ queryKey: ['campaigns'] });
       setShowModal(false);
       setEditingId(null);
-      Alert.alert('Campaign Deleted', 'The campaign and its leads have been deleted successfully.');
+      setCampaignToDelete(null);
+      if (Platform.OS === 'web') {
+        window.alert('The campaign and its leads have been deleted successfully.');
+      } else {
+        Alert.alert('Campaign Deleted', 'The campaign and its leads have been deleted successfully.');
+      }
     },
     onError: (err: any) => {
       const msg = err?.response?.data?.message || err?.message || 'Failed to delete campaign';
-      Alert.alert('Error', msg);
+      if (Platform.OS === 'web') {
+        window.alert(`Error: ${msg}`);
+      } else {
+        Alert.alert('Error', msg);
+      }
     },
   });
 
   const handleDeleteCampaign = (campaignId: string, campaignName: string) => {
-    Alert.alert(
-      'Delete Campaign',
-      `Are you sure you want to delete "${campaignName}"?\n\nThis will permanently delete the campaign and all associated leads. This action cannot be undone.`,
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Delete',
-          style: 'destructive',
-          onPress: () => deleteMutation.mutate(campaignId),
-        },
-      ],
-    );
+    setShowModal(false);
+    setCampaignToDelete({ id: campaignId, name: campaignName });
   };
 
   const handleToggleActive = (campId: string, currentStatus: boolean) => {
@@ -988,6 +989,94 @@ export const CampaignsScreen: React.FC = () => {
                 </Text>
               </TouchableOpacity>
             )}
+          </View>
+        </View>
+      </Modal>
+
+      {/* Delete Campaign Confirmation Modal */}
+      <Modal
+        visible={!!campaignToDelete}
+        transparent
+        animationType="fade"
+        onRequestClose={() => {
+          if (!deleteMutation.isPending) setCampaignToDelete(null);
+        }}
+      >
+        <View style={styles.modalBackdrop}>
+          <View style={[styles.modalCard, { maxWidth: 440, padding: 24 }]}>
+            <View
+              style={{
+                width: 48,
+                height: 48,
+                borderRadius: 24,
+                backgroundColor: '#FEE2E2',
+                alignItems: 'center',
+                justifyContent: 'center',
+                marginBottom: 16,
+              }}
+            >
+              <Trash2 size={24} color="#DC2626" />
+            </View>
+
+            <Text style={{ fontSize: 18, fontWeight: '800', color: '#0F172A', marginBottom: 8 }}>
+              Delete Campaign?
+            </Text>
+
+            <Text style={{ fontSize: 14, color: '#64748B', lineHeight: 20, marginBottom: 24 }}>
+              Are you sure you want to delete{' '}
+              <Text style={{ fontWeight: '700', color: '#0F172A' }}>
+                "{campaignToDelete?.name}"
+              </Text>
+              ?{'\n\n'}
+              This will permanently delete the campaign, all associated demo leads, and call logs. This action cannot be undone.
+            </Text>
+
+            <View style={{ flexDirection: 'row', gap: 12, justifyContent: 'flex-end' }}>
+              <TouchableOpacity
+                disabled={deleteMutation.isPending}
+                onPress={() => setCampaignToDelete(null)}
+                style={{
+                  paddingVertical: 10,
+                  paddingHorizontal: 16,
+                  borderRadius: 8,
+                  backgroundColor: '#F1F5F9',
+                }}
+              >
+                <Text style={{ fontSize: 14, fontWeight: '600', color: '#475569' }}>
+                  Cancel
+                </Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                disabled={deleteMutation.isPending}
+                onPress={() => {
+                  if (campaignToDelete?.id) {
+                    deleteMutation.mutate(campaignToDelete.id);
+                  }
+                }}
+                style={{
+                  flexDirection: 'row',
+                  alignItems: 'center',
+                  gap: 8,
+                  paddingVertical: 10,
+                  paddingHorizontal: 20,
+                  borderRadius: 8,
+                  backgroundColor: '#DC2626',
+                  opacity: deleteMutation.isPending ? 0.7 : 1,
+                }}
+              >
+                {deleteMutation.isPending ? (
+                  <ActivityIndicator size="small" color="#FFFFFF" />
+                ) : (
+                  <>
+                    <Trash2 size={16} color="#FFFFFF" />
+                    <Text style={{ fontSize: 14, fontWeight: '700', color: '#FFFFFF' }}>
+                      Delete Permanently
+                    </Text>
+                  </>
+                )}
+              </TouchableOpacity>
+            </View>
           </View>
         </View>
       </Modal>
