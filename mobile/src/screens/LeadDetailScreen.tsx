@@ -334,9 +334,41 @@ export const LeadDetailScreen: React.FC = () => {
     return currentCampaign?.engagementForm || [];
   }, [currentCampaign]);
 
-  // Selected Tag (Dynamic pipeline tag, not hardcoded Hot/Cold/Warm)
+  // Selected Tag (Dynamic pipeline tag, presets Hot/Warm/Cold, or custom)
   const [selectedTag, setSelectedTag] = useState<string | null>(lead.tag || null);
   const [customTagInput, setCustomTagInput] = useState<string>('');
+  const [showTagPickerModal, setShowTagPickerModal] = useState<boolean>(false);
+
+  const allTagOptions = useMemo(() => {
+    const list: Array<{
+      label: string;
+      value: string;
+      iconType: 'HOT' | 'WARM' | 'COLD' | 'CUSTOM';
+      color: string;
+      bg: string;
+      border: string;
+    }> = [
+      { label: 'Hot', value: 'Hot', iconType: 'HOT', color: '#DC2626', bg: '#FEE2E2', border: '#FCA5A5' },
+      { label: 'Warm', value: 'Warm', iconType: 'WARM', color: '#D97706', bg: '#FEF3C7', border: '#FDE68A' },
+      { label: 'Cold', value: 'Cold', iconType: 'COLD', color: '#2563EB', bg: '#DBEAFE', border: '#BFDBFE' },
+    ];
+    if (availableTags && availableTags.length > 0) {
+      availableTags.forEach((t) => {
+        if (!['hot', 'warm', 'cold'].includes(t.trim().toLowerCase())) {
+          list.push({
+            label: t,
+            value: t,
+            iconType: 'CUSTOM',
+            color: '#0F9D58',
+            bg: '#E6F4EA',
+            border: '#A7F3D0',
+          });
+        }
+      });
+    }
+    return list;
+  }, [availableTags]);
+
   const [engagementAnswers, setEngagementAnswers] = useState<Record<string, any>>({});
 
   // Checkboxes for "Select next action*"
@@ -1427,11 +1459,11 @@ export const LeadDetailScreen: React.FC = () => {
               </View>
             )}
 
-            {/* 2. Select Tag (Dynamic pipeline tags) */}
+            {/* 2. Select Tag (Hot / Warm / Cold Dropdown + Quick Chips) */}
             <View style={styles.fieldSection}>
               <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
                 <Text style={[styles.fieldLabel, { marginBottom: 0 }]}>
-                  Select Tag {availableTags.length > 0 && <Text style={styles.asterisk}>*</Text>}
+                  Select Tag
                 </Text>
                 {selectedTag && (
                   <TouchableOpacity onPress={() => setSelectedTag(null)}>
@@ -1440,60 +1472,80 @@ export const LeadDetailScreen: React.FC = () => {
                 )}
               </View>
 
-              {availableTags.length > 0 ? (
-                <View style={styles.tagChipsRow}>
-                  {availableTags.map((tag) => {
-                    const isSelected = selectedTag?.toLowerCase() === tag.toLowerCase();
-                    return (
-                      <TouchableOpacity
-                        key={tag}
-                        style={[styles.tagChip, isSelected && styles.tagChipSelected]}
-                        onPress={() => setSelectedTag(isSelected ? null : tag)}
-                        activeOpacity={0.7}
-                      >
-                        {isSelected && <Check size={12} color="#FFFFFF" strokeWidth={3} />}
-                        <Text style={[styles.tagChipText, isSelected && styles.tagChipTextSelected]}>
-                          {tag}
-                        </Text>
-                      </TouchableOpacity>
-                    );
-                  })}
-                </View>
-              ) : (
-                <View style={{ gap: 8 }}>
-                  {selectedTag ? (
-                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-                      <View style={[styles.tagChip, styles.tagChipSelected]}>
-                        <Text style={styles.tagChipTextSelected}>{selectedTag}</Text>
-                      </View>
-                      <TouchableOpacity onPress={() => setSelectedTag(null)}>
-                        <X size={16} color="#64748B" />
-                      </TouchableOpacity>
-                    </View>
+              {/* Dropdown Selector Box */}
+              <TouchableOpacity
+                style={styles.dropdownBoxSub}
+                onPress={() => setShowTagPickerModal(true)}
+                activeOpacity={0.7}
+              >
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                  {selectedTag?.toUpperCase() === 'HOT' ? (
+                    <Flame size={16} color="#DC2626" />
+                  ) : selectedTag?.toUpperCase() === 'WARM' ? (
+                    <Sun size={16} color="#D97706" />
+                  ) : selectedTag?.toUpperCase() === 'COLD' ? (
+                    <Snowflake size={16} color="#2563EB" />
+                  ) : selectedTag ? (
+                    <BookmarkCheck size={16} color="#0F9D58" />
                   ) : (
-                    <View style={styles.customTagRow}>
-                      <TextInput
-                        style={styles.customTagInput}
-                        value={customTagInput}
-                        onChangeText={setCustomTagInput}
-                        placeholder="Add tag (optional)"
-                        placeholderTextColor="#94A3B8"
-                      />
-                      <TouchableOpacity
-                        style={styles.addTagBtn}
-                        onPress={() => {
-                          if (customTagInput.trim()) {
-                            setSelectedTag(customTagInput.trim());
-                            setCustomTagInput('');
-                          }
-                        }}
-                      >
-                        <Text style={styles.addTagBtnText}>Apply</Text>
-                      </TouchableOpacity>
-                    </View>
+                    <BookmarkCheck size={16} color="#94A3B8" />
                   )}
+                  <Text
+                    style={[
+                      styles.dropdownValueText,
+                      !selectedTag && styles.placeholderText,
+                      selectedTag?.toUpperCase() === 'HOT' && { color: '#DC2626', fontWeight: '700' },
+                      selectedTag?.toUpperCase() === 'WARM' && { color: '#D97706', fontWeight: '700' },
+                      selectedTag?.toUpperCase() === 'COLD' && { color: '#2563EB', fontWeight: '700' },
+                    ]}
+                  >
+                    {selectedTag ? `${selectedTag} Lead` : 'Select Tag (Hot, Warm, Cold...)'}
+                  </Text>
                 </View>
-              )}
+                <Text style={styles.dropdownCaret}>▼</Text>
+              </TouchableOpacity>
+
+              {/* Quick 1-Tap Preset Chips */}
+              <View style={[styles.tagChipsRow, { marginTop: 8 }]}>
+                {allTagOptions.map((opt) => {
+                  const isSelected = selectedTag?.toLowerCase() === opt.value.toLowerCase();
+                  return (
+                    <TouchableOpacity
+                      key={opt.value}
+                      style={[
+                        styles.tagChip,
+                        opt.bg && { backgroundColor: opt.bg, borderColor: opt.border || opt.color },
+                        isSelected && {
+                          backgroundColor: opt.color || '#0F9D58',
+                          borderColor: opt.color || '#0F9D58',
+                        },
+                      ]}
+                      onPress={() => setSelectedTag(isSelected ? null : opt.value)}
+                      activeOpacity={0.7}
+                    >
+                      {opt.iconType === 'HOT' ? (
+                        <Flame size={13} color={isSelected ? '#FFFFFF' : opt.color} />
+                      ) : opt.iconType === 'WARM' ? (
+                        <Sun size={13} color={isSelected ? '#FFFFFF' : opt.color} />
+                      ) : opt.iconType === 'COLD' ? (
+                        <Snowflake size={13} color={isSelected ? '#FFFFFF' : opt.color} />
+                      ) : (
+                        <BookmarkCheck size={13} color={isSelected ? '#FFFFFF' : opt.color} />
+                      )}
+                      <Text
+                        style={[
+                          styles.tagChipText,
+                          opt.color && { color: opt.color },
+                          isSelected && { color: '#FFFFFF', fontWeight: '800' },
+                        ]}
+                      >
+                        {opt.label}
+                      </Text>
+                      {isSelected && <Check size={12} color="#FFFFFF" strokeWidth={3} />}
+                    </TouchableOpacity>
+                  );
+                })}
+              </View>
             </View>
 
             {/* 3. Select next action* */}
@@ -2093,6 +2145,107 @@ export const LeadDetailScreen: React.FC = () => {
                   <Text style={styles.pickerItemText}>{c.name}</Text>
                 </TouchableOpacity>
               ))}
+            </ScrollView>
+          </View>
+        </View>
+      </Modal>
+
+      {/* Tag Dropdown Picker Modal */}
+      <Modal
+        visible={showTagPickerModal}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setShowTagPickerModal(false)}
+      >
+        <View style={styles.modalBackdrop}>
+          <View style={styles.modalSheet}>
+            <View style={styles.modalHeader}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                <BookmarkCheck size={18} color="#0F9D58" />
+                <Text style={styles.modalTitle}>Select Lead Tag / Priority</Text>
+              </View>
+              <TouchableOpacity onPress={() => setShowTagPickerModal(false)}>
+                <X size={20} color="#64748B" />
+              </TouchableOpacity>
+            </View>
+            <ScrollView style={{ maxHeight: 380, paddingVertical: 6 }}>
+              {allTagOptions.map((opt) => {
+                const isSelected = selectedTag?.toLowerCase() === opt.value.toLowerCase();
+                return (
+                  <TouchableOpacity
+                    key={opt.value}
+                    style={[
+                      styles.pickerItemRow,
+                      isSelected && styles.pickerItemRowSelected,
+                      { paddingVertical: 12, paddingHorizontal: 10 },
+                    ]}
+                    onPress={() => {
+                      setSelectedTag(opt.value);
+                      setShowTagPickerModal(false);
+                    }}
+                  >
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12, flex: 1 }}>
+                      {opt.iconType === 'HOT' ? (
+                        <Flame size={20} color="#DC2626" />
+                      ) : opt.iconType === 'WARM' ? (
+                        <Sun size={20} color="#D97706" />
+                      ) : opt.iconType === 'COLD' ? (
+                        <Snowflake size={20} color="#2563EB" />
+                      ) : (
+                        <BookmarkCheck size={20} color="#0F9D58" />
+                      )}
+                      <View style={{ flex: 1 }}>
+                        <Text
+                          style={[
+                            styles.pickerItemText,
+                            { fontSize: 14.5, fontWeight: isSelected ? '700' : '600' },
+                            opt.color && !isSelected && { color: opt.color },
+                            isSelected && styles.pickerItemTextSelected,
+                          ]}
+                        >
+                          {opt.label} Lead
+                        </Text>
+                        <Text style={{ fontSize: 11.5, color: '#64748B', marginTop: 1 }}>
+                          {opt.value === 'Hot'
+                            ? 'High intent / Immediate interest'
+                            : opt.value === 'Warm'
+                            ? 'Moderate interest / Follow-up required'
+                            : opt.value === 'Cold'
+                            ? 'Low interest / Not ready yet'
+                            : 'Custom pipeline tag'}
+                        </Text>
+                      </View>
+                    </View>
+                    {isSelected && <Check size={18} color="#0F9D58" strokeWidth={2.5} />}
+                  </TouchableOpacity>
+                );
+              })}
+
+              {/* Custom tag input section */}
+              <View style={{ marginTop: 12, paddingTop: 12, borderTopWidth: 1, borderTopColor: '#F1F5F9', gap: 8, paddingHorizontal: 4 }}>
+                <Text style={{ fontSize: 12, fontWeight: '600', color: '#64748B' }}>Or type custom tag:</Text>
+                <View style={styles.customTagRow}>
+                  <TextInput
+                    style={styles.customTagInput}
+                    value={customTagInput}
+                    onChangeText={setCustomTagInput}
+                    placeholder="Enter custom tag..."
+                    placeholderTextColor="#94A3B8"
+                  />
+                  <TouchableOpacity
+                    style={styles.addTagBtn}
+                    onPress={() => {
+                      if (customTagInput.trim()) {
+                        setSelectedTag(customTagInput.trim());
+                        setCustomTagInput('');
+                        setShowTagPickerModal(false);
+                      }
+                    }}
+                  >
+                    <Text style={styles.addTagBtnText}>Apply</Text>
+                  </TouchableOpacity>
+                </View>
+              </View>
             </ScrollView>
           </View>
         </View>
