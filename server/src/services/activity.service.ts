@@ -71,12 +71,16 @@ export class ActivityService {
           }
         }
 
-        const defaultName = (input as any).name || (input as any).customerName || `Direct Call (${cleanDigits})`;
+        const isInc = input.direction === 'INCOMING' || (input as any).callerSource === 'INCOMING_CALL';
+        const defaultName =
+          (input as any).name ||
+          (input as any).customerName ||
+          (isInc ? `Incoming Call (${cleanDigits})` : `Direct Call (${cleanDigits})`);
         lead = await Lead.create({
           campaignId: targetCamp._id,
           name: defaultName,
           phone: cleanDigits.length === 10 ? `+91 ${cleanDigits}` : candidatePhone,
-          source: 'DIRECT',
+          source: isInc ? 'INCOMING' : 'DIRECT',
           stage: input.stage || initialStage,
           status: 'OPEN',
           assignedTo: requester._id,
@@ -160,9 +164,11 @@ export class ActivityService {
     const settings = await SettingService.getSettings();
     const isCallAttempt = input.callAttempt;
 
+    const isIncomingCall = input.direction === 'INCOMING' || (input as any).callerSource === 'INCOMING_CALL';
+
     if (input.connected) {
-      // Stage is required when connected
-      const stageName = input.stage!;
+      // Stage is required when connected (except automatic incoming call sync)
+      const stageName = input.stage || lead.stage || 'Connected';
       const stageDoc = await PipelineService.getStage(campaign.pipelineId, stageName);
       const normalizedStageName = stageName.trim().toLowerCase();
       const standaloneClosingStages: Record<string, string> = {
@@ -179,14 +185,16 @@ export class ActivityService {
       // "Closed" is a disposition state in the app even when a campaign pipeline
       // doesn't define it as a stage (the default pipeline uses "Lost" instead).
       if (!stageDoc && !standaloneClosingStage) {
-        throw new AppError(
-          `Stage '${stageName}' does not exist in the campaign's pipeline`,
-          400,
-        );
+        if (!isIncomingCall) {
+          throw new AppError(
+            `Stage '${stageName}' does not exist in the campaign's pipeline`,
+            400,
+          );
+        }
       }
 
       // If tag is provided, verify it belongs to this stage (case-insensitive & accept standard temperature tags)
-      if (input.tag) {
+      if (input.tag && !isIncomingCall) {
         const lowerTag = input.tag.toLowerCase();
         const stageTagsLower = (stageDoc?.tags || []).map((t: string) => t.toLowerCase());
         const standardTags = ['hot', 'warm', 'cold'];
@@ -221,17 +229,17 @@ export class ActivityService {
       } else {
         lead.status = 'OPEN';
         // Follow-up required unless allowDisposeWithoutFollowUp org setting is true
-        if (!settings.allowDisposeWithoutFollowUp && !input.followUpAt) {
+        if (!settings.allowDisposeWithoutFollowUp && !input.followUpAt && !isIncomingCall) {
           throw new AppError(
             'followUpAt is required when disposing a non-closed connected lead',
             400,
           );
         }
-        lead.nextFollowUpAt = input.followUpAt ? new Date(input.followUpAt) : null;
+        lead.nextFollowUpAt = input.followUpAt ? new Date(input.followUpAt) : (lead.nextFollowUpAt || null);
       }
 
-      lead.stage = stageDoc?.name || standaloneClosingStage || stageName;
-      lead.tag = input.tag || null;
+      lead.stage = stageDoc?.name || standaloneClosingStage || lead.stage || stageName;
+      lead.tag = input.tag || lead.tag || null;
       lead.followUpDue = false;
     } else {
       // Not connected - count consecutive not-connected attempts

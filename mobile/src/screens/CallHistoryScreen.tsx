@@ -41,7 +41,7 @@ import {
 } from 'lucide-react-native';
 
 import { CrmShell } from '../components/CrmShell';
-import { useLeadHistoryStore, deduplicateActivities } from '../store/leadHistoryStore';
+import { useLeadHistoryStore, deduplicateActivities, normalizePhone } from '../store/leadHistoryStore';
 import { callSession } from '../services/callSession';
 import { incomingCallSyncService } from '../services/incomingCallSync.service';
 import { useAuthStore } from '../store/authStore';
@@ -505,8 +505,39 @@ export const CallHistoryScreen: React.FC = () => {
       (a) => a && a._id && a.type === 'CALL' && matchesMe(a),
     );
 
-    // Merge server activities (priority) and local activities with deduplication
-    const combined = [...serverMatched, ...local];
+    // When server activities are loaded from MongoDB, they are the authoritative source of truth.
+    // Only include local activities that are truly pending/offline and not already present on the server.
+    const localPending = local.filter((locAct) => {
+      const isLocalId =
+        locAct._id.startsWith('act-') ||
+        locAct._id.startsWith('dial-') ||
+        locAct._id.startsWith('inc-') ||
+        locAct._id.startsWith('local_');
+
+      // If it is already a persistent server ObjectId (24 hex characters), ignore it from local store
+      if (!isLocalId) return false;
+
+      // Filter out stale local remnants older than 24 hours so ancient phone remnants never resurrect
+      const locTime = new Date(locAct.createdAt).getTime();
+      if (Date.now() - locTime > 24 * 60 * 60 * 1000) return false;
+
+      // Check if this call is already represented in server activities
+      const locPhone = normalizePhone(locAct.phone);
+      const isAlreadyOnServer = serverMatched.some((sAct) => {
+        if (locAct.idempotencyKey && sAct.idempotencyKey && locAct.idempotencyKey === sAct.idempotencyKey) return true;
+        if (locAct.callLogId && sAct.callLogId && locAct.callLogId === sAct.callLogId) return true;
+        const sPhone = normalizePhone(sAct.phone);
+        if (locPhone && sPhone && locPhone === sPhone) {
+          const sTime = new Date(sAct.createdAt).getTime();
+          return Math.abs(locTime - sTime) <= 600000; // 10 minutes
+        }
+        return false;
+      });
+
+      return !isAlreadyOnServer;
+    });
+
+    const combined = [...serverMatched, ...localPending];
     return deduplicateActivities(combined);
   }, [serverActivities, getAllActivities, user, isAgent]);
 

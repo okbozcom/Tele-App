@@ -43,7 +43,7 @@ export const disposeLeadSchema = z.object({
       copyToCampaignId: z.string().regex(objectIdRegex, 'Invalid copy campaign ID').optional().nullable(),
     })
     .superRefine((data, ctx) => {
-      if (data.connected) {
+      if (data.connected && data.direction !== 'INCOMING') {
         if (!data.stage || data.stage.trim().length === 0) {
           ctx.addIssue({
             code: z.ZodIssueCode.custom,

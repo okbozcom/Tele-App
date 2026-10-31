@@ -43,22 +43,30 @@ export const deduplicateActivities = (activities: Activity[]): Activity[] => {
       }
 
       // Reconcile local optimistic activity with its server persistent counterpart
-      const isActLocal = act._id.startsWith('act-') || act._id.startsWith('local_') || act._id.startsWith('inc-');
-      const isRLocal = r._id.startsWith('act-') || r._id.startsWith('local_') || r._id.startsWith('inc-');
+      const isActLocal =
+        act._id.startsWith('act-') ||
+        act._id.startsWith('local_') ||
+        act._id.startsWith('inc-') ||
+        act._id.startsWith('dial-');
+      const isRLocal =
+        r._id.startsWith('act-') ||
+        r._id.startsWith('local_') ||
+        r._id.startsWith('inc-') ||
+        r._id.startsWith('dial-');
 
       // If both are server activities or both are local activities, they are separate distinct calls - never merge!
       if (isActLocal === isRLocal) {
         return false;
       }
 
-      // One is local optimistic and one is server: reconcile if within 15 seconds
+      // One is local optimistic and one is server: reconcile if within 10 minutes (600,000 ms)
       const rPhone = normalizePhone(r.phone);
       if (!phone || !rPhone || phone !== rPhone) return false;
       const actDir = (act as any).direction || 'OUTGOING';
       const rDir = (r as any).direction || 'OUTGOING';
       if (actDir !== rDir) return false;
       const rTime = new Date(r.createdAt).getTime();
-      return Math.abs(actTime - rTime) <= 15000;
+      return Math.abs(actTime - rTime) <= 600000;
     });
 
     if (existingIndex >= 0) {

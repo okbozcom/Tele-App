@@ -5,6 +5,7 @@ import { storage } from '../utils/storage';
 import { API_BASE_URL } from '../config';
 import { UserRegistry } from '../utils/userRegistry';
 import { toast } from './toastStore';
+import { useLeadHistoryStore } from './leadHistoryStore';
 
 const TOKEN_KEY = 'tele_app_auth_token';
 const USER_KEY = 'tele_app_auth_user';
@@ -142,6 +143,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     await storage.removeItem(TOKEN_KEY);
     await storage.removeItem(USER_KEY);
     await storage.removeItem('tele_crm_my_leads_cache_v2');
+    await useLeadHistoryStore.getState().clearHistory();
     if (typeof localStorage !== 'undefined') {
       try {
         localStorage.removeItem('hi_talk_last_screen');
