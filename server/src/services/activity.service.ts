@@ -107,14 +107,33 @@ export class ActivityService {
       return { activity: act, lead: ld };
     };
 
-    // Check clientEventId and idempotencyKey: If already processed, return existing activity and lead
+    // Check clientEventId and idempotencyKey: If already processed, update with rich disposition details and return
     if (input.clientEventId) {
       const existingByClientEventId = await Activity.findOne({
         userId: requester._id,
         clientEventId: input.clientEventId,
       });
       if (existingByClientEventId) {
+        if (input.stage && input.stage !== 'Connected' && input.stage !== 'Not Connected') {
+          existingByClientEventId.stage = input.stage;
+        }
+        if (input.tag !== undefined) existingByClientEventId.tag = input.tag;
+        if (input.remark && !input.remark.startsWith('Outbound call connected')) {
+          existingByClientEventId.remark = input.remark;
+        }
+        if (input.followUpAt) existingByClientEventId.followUpAt = new Date(input.followUpAt);
+        if (input.dealAmount !== undefined) existingByClientEventId.dealAmount = input.dealAmount;
+        if (input.currency) existingByClientEventId.currency = input.currency;
+        if (input.answers && input.answers.length > 0) existingByClientEventId.answers = input.answers as any;
+        await existingByClientEventId.save();
+
         const resolvedLead = lead || (await Lead.findById(existingByClientEventId.leadId));
+        if (resolvedLead) {
+          if (existingByClientEventId.stage) resolvedLead.stage = existingByClientEventId.stage;
+          if (existingByClientEventId.tag) resolvedLead.tag = existingByClientEventId.tag;
+          if (existingByClientEventId.followUpAt) resolvedLead.nextFollowUpAt = existingByClientEventId.followUpAt;
+          await resolvedLead.save();
+        }
         return formatDisposeResult(existingByClientEventId, resolvedLead!);
       }
     }

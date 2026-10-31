@@ -2,6 +2,9 @@ import { AppState, AppStateStatus } from 'react-native';
 import { callService } from './call.service';
 import { incomingCallSyncService } from './incomingCallSync.service';
 import { useAuthStore } from '../store/authStore';
+import { useOutboxStore } from '../store/outboxStore';
+import { useLeadHistoryStore } from '../store/leadHistoryStore';
+import { apiClient } from '../api/client';
 import { Lead, DetectedCallResult } from '../types';
 import { navigationRef } from '../navigation/RootNavigator';
 import { storage } from '../utils/storage';
@@ -226,6 +229,75 @@ class CallSessionManager {
       const stableCallLogId =
         (result as any).logId || `call-${startTime}-${lead.phone.replace(/\D/g, '').slice(-10)}`;
       const durationSource = result.matchedLog ? 'DEVICE_CALL_LOG' : 'APP_ESTIMATE';
+
+      // Auto-save call attempt immediately so it is recorded in MongoDB and local store
+      // even if the agent closes the app, swipes away, or leaves without submitting Dispose
+      const initialStage = result.connected ? 'Connected' : 'Not Connected';
+      const initialRemark = result.connected
+        ? `Outbound call connected (${result.durationSeconds || 0}s)`
+        : 'Outbound call not connected';
+      const initialDuration = result.connected ? result.durationSeconds || 0 : 0;
+      const targetLeadId = lead._id || `dial-${lead.phone.replace(/\D/g, '').slice(-10)}`;
+
+      // 1. Immediately record in local history store so the dial is visible on this phone
+      try {
+        useLeadHistoryStore.getState().addActivity(targetLeadId, {
+          phone: lead.phone,
+          customerName: lead.name,
+          connected: result.connected,
+          type: 'CALL',
+          direction: 'OUTGOING',
+          stage: initialStage,
+          durationSeconds: initialDuration,
+          remark: initialRemark,
+          callLogId: stableCallLogId,
+          idempotencyKey: clientEventId,
+          createdAt: new Date(startTime).toISOString(),
+        });
+      } catch (storeErr) {
+        console.warn('[CallSession] Local history auto-record error:', storeErr);
+      }
+
+      // 2. Persist call attempt to MongoDB server
+      apiClient
+        .post(`/api/leads/${targetLeadId}/dispose`, {
+          phone: lead.phone,
+          connected: result.connected,
+          callAttempt: true,
+          stage: initialStage,
+          durationSeconds: initialDuration,
+          direction: 'OUTGOING',
+          clientEventId,
+          idempotencyKey: clientEventId,
+          callLogId: stableCallLogId,
+          startedAt: new Date(startTime).toISOString(),
+          clientTimestamp: new Date(startTime).toISOString(),
+          remark: initialRemark,
+          durationSource,
+        })
+        .catch(() => {
+          // If offline or network drop, enqueue in durable outbox for automatic background retry
+          useOutboxStore.getState().enqueueMutation(
+            'DISPOSE_LEAD',
+            targetLeadId,
+            {
+              phone: lead.phone,
+              connected: result.connected,
+              callAttempt: true,
+              stage: initialStage,
+              durationSeconds: initialDuration,
+              direction: 'OUTGOING',
+              clientEventId,
+              idempotencyKey: clientEventId,
+              callLogId: stableCallLogId,
+              startedAt: new Date(startTime).toISOString(),
+              clientTimestamp: new Date(startTime).toISOString(),
+              remark: initialRemark,
+              durationSource,
+            },
+            clientEventId,
+          ).catch(() => {});
+        });
 
       // Invoke optional callback if the caller registered one
       try {
