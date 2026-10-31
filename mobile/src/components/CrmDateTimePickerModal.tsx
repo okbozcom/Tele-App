@@ -27,6 +27,7 @@ export interface CrmDateTimePickerModalProps {
   onConfirm: (isoDate: string) => void;
   title?: string;
   allowPastDates?: boolean;
+  allowFutureDates?: boolean;
   mode?: 'datetime' | 'date';
 }
 
@@ -41,6 +42,7 @@ export const CrmDateTimePickerModal: React.FC<CrmDateTimePickerModalProps> = ({
   onConfirm,
   title = 'Select Date & Time',
   allowPastDates = false,
+  allowFutureDates = true,
   mode = 'datetime',
 }) => {
   // Active Tab: 'DATE' or 'TIME'
@@ -117,8 +119,26 @@ export const CrmDateTimePickerModal: React.FC<CrmDateTimePickerModalProps> = ({
 
   const today = useMemo(() => new Date(), []);
 
+  // Month Navigation Bounds
+  const canGoNext = useMemo(() => {
+    if (allowFutureDates) return true;
+    return (
+      viewYear < today.getFullYear() ||
+      (viewYear === today.getFullYear() && viewMonth < today.getMonth())
+    );
+  }, [allowFutureDates, viewYear, viewMonth, today]);
+
+  const canGoPrev = useMemo(() => {
+    if (allowPastDates) return true;
+    return (
+      viewYear > today.getFullYear() ||
+      (viewYear === today.getFullYear() && viewMonth > today.getMonth())
+    );
+  }, [allowPastDates, viewYear, viewMonth, today]);
+
   // Month Navigation
   const prevMonth = () => {
+    if (!canGoPrev) return;
     if (viewMonth === 0) {
       setViewMonth(11);
       setViewYear((y) => y - 1);
@@ -128,6 +148,7 @@ export const CrmDateTimePickerModal: React.FC<CrmDateTimePickerModalProps> = ({
   };
 
   const nextMonth = () => {
+    if (!canGoNext) return;
     if (viewMonth === 11) {
       setViewMonth(0);
       setViewYear((y) => y + 1);
@@ -165,6 +186,14 @@ export const CrmDateTimePickerModal: React.FC<CrmDateTimePickerModalProps> = ({
     if (allowPastDates) return false;
     const dateToCheck = new Date(viewYear, viewMonth, day, 23, 59, 59);
     return dateToCheck.getTime() < today.getTime() && !isDayToday(day);
+  };
+
+  // Check if a day is in the future
+  const isDayFuture = (day: number) => {
+    if (allowFutureDates) return false;
+    const dateToCheck = new Date(viewYear, viewMonth, day, 0, 0, 0);
+    const startOfToday = new Date(today.getFullYear(), today.getMonth(), today.getDate()).getTime();
+    return dateToCheck.getTime() > startOfToday;
   };
 
   // Hour & Minute Selectors
@@ -303,13 +332,23 @@ export const CrmDateTimePickerModal: React.FC<CrmDateTimePickerModalProps> = ({
               <View style={styles.calendarCard}>
                 {/* Month & Year Navigation Header */}
                 <View style={styles.monthHeaderRow}>
-                  <TouchableOpacity onPress={prevMonth} style={styles.navBtn} activeOpacity={0.7}>
+                  <TouchableOpacity
+                    onPress={prevMonth}
+                    style={[styles.navBtn, !canGoPrev && { opacity: 0.3 }]}
+                    disabled={!canGoPrev}
+                    activeOpacity={0.7}
+                  >
                     <ChevronLeft size={18} color="#334155" />
                   </TouchableOpacity>
 
                   <Text style={styles.monthTitleText}>{monthName}</Text>
 
-                  <TouchableOpacity onPress={nextMonth} style={styles.navBtn} activeOpacity={0.7}>
+                  <TouchableOpacity
+                    onPress={nextMonth}
+                    style={[styles.navBtn, !canGoNext && { opacity: 0.3 }]}
+                    disabled={!canGoNext}
+                    activeOpacity={0.7}
+                  >
                     <ChevronRight size={18} color="#334155" />
                   </TouchableOpacity>
                 </View>
@@ -336,6 +375,8 @@ export const CrmDateTimePickerModal: React.FC<CrmDateTimePickerModalProps> = ({
                     const selected = isDaySelected(day);
                     const isCurrentDay = isDayToday(day);
                     const past = isDayPast(day);
+                    const future = isDayFuture(day);
+                    const disabled = past || future;
 
                     return (
                       <TouchableOpacity
@@ -346,7 +387,7 @@ export const CrmDateTimePickerModal: React.FC<CrmDateTimePickerModalProps> = ({
                           !selected && isCurrentDay && styles.dayCellToday,
                         ]}
                         onPress={() => handleSelectDay(day)}
-                        disabled={past}
+                        disabled={disabled}
                         activeOpacity={0.7}
                       >
                         <Text
@@ -354,7 +395,7 @@ export const CrmDateTimePickerModal: React.FC<CrmDateTimePickerModalProps> = ({
                             styles.dayCellText,
                             selected && styles.dayCellTextSelected,
                             !selected && isCurrentDay && styles.dayCellTextToday,
-                            past && styles.dayCellTextPast,
+                            disabled && styles.dayCellTextPast,
                           ]}
                         >
                           {day}

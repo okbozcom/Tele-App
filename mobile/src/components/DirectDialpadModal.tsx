@@ -26,11 +26,28 @@ import {
 import { useQuery } from '@tanstack/react-query';
 import { useDialerStore } from '../store/dialerStore';
 import { useCampaignStore } from '../store/campaignStore';
+import { useAuthStore } from '../store/authStore';
+import { useLeadHistoryStore } from '../store/leadHistoryStore';
+import { storage } from '../utils/storage';
+import { formatDisplayPhone, normalizePhoneDigits } from '../utils/phoneUtils';
 import { fetchCampaigns, createWalkInLead } from '../api/leadApi';
 import { callService } from '../services/call.service';
 import { callSession } from '../services/callSession';
 import { toast } from '../store/toastStore';
 import { Campaign, Lead } from '../types';
+
+interface ContactSuggestion {
+  id: string;
+  name: string;
+  phone: string;
+  cleanPhone: string;
+  campaignId?: string;
+  campaignName?: string;
+  leadId?: string;
+  stage?: string;
+  lastCalledAt?: string;
+  source: 'RECENT' | 'LEAD';
+}
 
 const KEYPAD_BUTTONS = [
   { digit: '1', sub: '' },
@@ -66,6 +83,11 @@ export const DirectDialpadModal: React.FC = () => {
   const [selectedCampaignId, setSelectedCampaignId] = useState<string | null>(null);
   const [showCampaignPicker, setShowCampaignPicker] = useState(false);
 
+  const { user } = useAuthStore();
+  const historyMap = useLeadHistoryStore((s) => s.historyMap);
+  const [cachedLeads, setCachedLeads] = useState<any[]>([]);
+  const [selectedLeadId, setSelectedLeadId] = useState<string | null>(null);
+
   // Fetch campaigns to link the direct call activity
   const { data: campaignData } = useQuery({
     queryKey: ['campaigns'],
@@ -75,6 +97,42 @@ export const DirectDialpadModal: React.FC = () => {
   const campaigns: Campaign[] = useMemo(() => {
     return (campaignData?.campaigns || []).filter((c) => c.isActive !== false);
   }, [campaignData]);
+
+  // Load offline cached CRM leads whenever dialer opens
+  useEffect(() => {
+    if (!isOpen) {
+      setSelectedLeadId(null);
+      return;
+    }
+
+    let isMounted = true;
+    const loadCached = async () => {
+      try {
+        const keys = [
+          user?._id ? `tele_crm_my_leads_cache_v2_${user._id}` : null,
+          'tele_crm_my_leads_cache_v2',
+        ].filter(Boolean) as string[];
+
+        for (const k of keys) {
+          const raw = await storage.getItem(k);
+          if (raw) {
+            const parsed = JSON.parse(raw);
+            if (parsed.leads && Array.isArray(parsed.leads) && isMounted) {
+              setCachedLeads(parsed.leads);
+              break;
+            }
+          }
+        }
+      } catch (err) {
+        // Safe fallback
+      }
+    };
+
+    loadCached();
+    return () => {
+      isMounted = false;
+    };
+  }, [isOpen, user?._id]);
 
   useEffect(() => {
     if (storeCampaignId) {
@@ -86,11 +144,183 @@ export const DirectDialpadModal: React.FC = () => {
     }
   }, [storeCampaignId, globalCampaignId, campaigns, selectedCampaignId]);
 
+  const campaignMap = useMemo(() => {
+    const map: Record<string, string> = {};
+    for (const c of campaigns) {
+      map[c._id] = c.name;
+    }
+    return map;
+  }, [campaigns]);
+
   const selectedCampaignName = useMemo(() => {
     if (!selectedCampaignId) return campaigns[0]?.name || 'General Campaign';
     const found = campaigns.find((c) => c._id === selectedCampaignId);
     return found ? found.name : 'General Campaign';
   }, [selectedCampaignId, campaigns]);
+
+  // Aggregate all contacts from recent calls + assigned CRM leads
+  const allContacts = useMemo<ContactSuggestion[]>(() => {
+    const map = new Map<string, ContactSuggestion>();
+
+    // 1. All recent calls from historyMap
+    const allActivities = Object.values(historyMap)
+      .flat()
+      .filter((a) => a && a.phone && a.type === 'CALL')
+      .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+
+    for (const act of allActivities) {
+      const clean = normalizePhoneDigits(act.phone || '');
+      if (clean.length < 5) continue;
+      if (!map.has(clean)) {
+        map.set(clean, {
+          id: act._id,
+          name: act.customerName || (act.phone ? `Direct Call (${formatDisplayPhone(act.phone)})` : 'Customer'),
+          phone: act.phone || '',
+          cleanPhone: clean,
+          campaignId: act.campaignId,
+          campaignName: act.campaignId && campaignMap[act.campaignId] ? campaignMap[act.campaignId] : undefined,
+          leadId: act.leadId,
+          stage: act.stage,
+          lastCalledAt: act.createdAt,
+          source: 'RECENT',
+        });
+      }
+    }
+
+    // 2. All CRM cached leads
+    for (const lead of cachedLeads) {
+      if (!lead || !lead.phone) continue;
+      const clean = normalizePhoneDigits(lead.phone);
+      if (clean.length < 5) continue;
+
+      const existing = map.get(clean);
+      if (existing) {
+        if (lead.name && (!existing.name || existing.name.startsWith('Direct Call') || existing.name === 'Customer')) {
+          existing.name = lead.name;
+        }
+        if (lead._id) existing.leadId = lead._id;
+        if (lead.campaignId) existing.campaignId = lead.campaignId;
+        if (lead.stage) existing.stage = lead.stage;
+      } else {
+        map.set(clean, {
+          id: lead._id,
+          name: lead.name || 'Lead',
+          phone: lead.phone,
+          cleanPhone: clean,
+          campaignId: lead.campaignId,
+          campaignName: lead.campaignId && campaignMap[lead.campaignId] ? campaignMap[lead.campaignId] : undefined,
+          leadId: lead._id,
+          stage: lead.stage,
+          source: 'LEAD',
+        });
+      }
+    }
+
+    return Array.from(map.values());
+  }, [historyMap, cachedLeads, campaignMap]);
+
+  // Filter matching suggestions based on typed input
+  const matchingSuggestions = useMemo<ContactSuggestion[]>(() => {
+    const raw = phoneNumber.trim();
+    const clean = normalizePhoneDigits(raw);
+
+    // If input is empty, show top 3 recent calls for quick re-dialing
+    if (!raw && !clean) {
+      return allContacts
+        .filter((c) => c.source === 'RECENT' || c.lastCalledAt)
+        .slice(0, 3);
+    }
+
+    // When typing, match by phone digits (substring) or customer name
+    return allContacts
+      .filter((c) => {
+        const phoneMatch = clean.length >= 1 ? c.cleanPhone.includes(clean) : false;
+        const nameMatch = raw.length >= 2 ? c.name.toLowerCase().includes(raw.toLowerCase()) : false;
+        return phoneMatch || nameMatch;
+      })
+      .slice(0, 4);
+  }, [allContacts, phoneNumber]);
+
+  const handleSelectSuggestion = (item: ContactSuggestion) => {
+    setPhoneNumber(item.phone);
+    if (item.name && !item.name.startsWith('Direct Call')) {
+      setCustomerName(item.name);
+    }
+    if (item.campaignId) {
+      setSelectedCampaignId(item.campaignId);
+    }
+    setSelectedLeadId(item.leadId || null);
+  };
+
+  const handleDirectCallSuggestion = async (item: ContactSuggestion) => {
+    setPhoneNumber(item.phone);
+    if (item.name && !item.name.startsWith('Direct Call')) {
+      setCustomerName(item.name);
+    }
+    if (item.campaignId) {
+      setSelectedCampaignId(item.campaignId);
+    }
+
+    const cleanDigits = normalizePhoneDigits(item.phone);
+    const targetCampaignId = item.campaignId || selectedCampaignId || campaigns[0]?._id;
+    const leadName =
+      (item.name && !item.name.startsWith('Direct Call') ? item.name : '') ||
+      `Direct Call (${item.phone.trim()})`;
+
+    if (targetCampaignId && !item.leadId) {
+      createWalkInLead(targetCampaignId, {
+        name: leadName,
+        phone: item.phone.trim(),
+      }).catch((err) => {
+        console.warn('[DirectDialpad] Auto-saving lead in campaign:', err);
+      });
+    }
+
+    const activeLead: Lead = {
+      _id: item.leadId || `dial-${cleanDigits}`,
+      campaignId: targetCampaignId || 'default',
+      name: leadName,
+      phone: item.phone.trim(),
+      source: item.leadId ? 'CRM' : 'DIRECT',
+      stage: item.stage || 'New',
+      status: 'OPEN',
+      attemptCount: 1,
+      customProperties: {},
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    };
+
+    closeDialer();
+    toast.info(`Dialing ${item.phone.trim()} via SIM...`, 'Calling');
+
+    try {
+      await callSession.startCall(activeLead, {
+        callerSource: 'DIALPAD',
+      });
+    } catch (err) {
+      Alert.alert('Call Error', 'Could not open device phone dialer.');
+    }
+  };
+
+  const handleAppendDigit = (digit: string) => {
+    appendDigit(digit);
+    setSelectedLeadId(null);
+  };
+
+  const handleBackspace = () => {
+    backspace();
+    setSelectedLeadId(null);
+  };
+
+  const handleClear = () => {
+    clear();
+    setSelectedLeadId(null);
+  };
+
+  const handlePhoneChange = (text: string) => {
+    setPhoneNumber(text);
+    setSelectedLeadId(null);
+  };
 
   const handlePaste = async () => {
     try {
@@ -99,6 +329,7 @@ export const DirectDialpadModal: React.FC = () => {
         const cleaned = content.replace(/[^0-9+*#]/g, '');
         if (cleaned) {
           setPhoneNumber(cleaned);
+          setSelectedLeadId(null);
           toast.info('Pasted from clipboard', 'Keypad');
         }
       }
@@ -118,7 +349,7 @@ export const DirectDialpadModal: React.FC = () => {
     const leadName = customerName.trim() || `Direct Call (${phoneNumber.trim()})`;
 
     // Automatically ensure the lead is saved in MongoDB under the agent's campaign immediately
-    if (targetCampaignId) {
+    if (targetCampaignId && !selectedLeadId) {
       createWalkInLead(targetCampaignId, {
         name: leadName,
         phone: phoneNumber.trim(),
@@ -128,11 +359,11 @@ export const DirectDialpadModal: React.FC = () => {
     }
 
     const activeLead: Lead = {
-      _id: `dial-${cleanDigits}`,
+      _id: selectedLeadId || `dial-${cleanDigits}`,
       campaignId: targetCampaignId || 'default',
       name: leadName,
       phone: phoneNumber.trim(),
-      source: 'DIRECT',
+      source: selectedLeadId ? 'CRM' : 'DIRECT',
       stage: 'New',
       status: 'OPEN',
       attemptCount: 1,
@@ -205,7 +436,7 @@ export const DirectDialpadModal: React.FC = () => {
             <TextInput
               style={styles.numberDisplayInput}
               value={phoneNumber}
-              onChangeText={setPhoneNumber}
+              onChangeText={handlePhoneChange}
               placeholder="Enter phone number"
               placeholderTextColor="#94A3B8"
               keyboardType="phone-pad"
@@ -224,8 +455,8 @@ export const DirectDialpadModal: React.FC = () => {
 
               {phoneNumber.length > 0 && (
                 <TouchableOpacity
-                  onPress={backspace}
-                  onLongPress={clear}
+                  onPress={handleBackspace}
+                  onLongPress={handleClear}
                   style={styles.displayActionBtn}
                   hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}
                   accessibilityLabel="Delete digit"
@@ -291,15 +522,78 @@ export const DirectDialpadModal: React.FC = () => {
             </View>
           )}
 
+          {/* Live Contact & Recent Call Suggestions */}
+          {matchingSuggestions.length > 0 && (
+            <View style={styles.suggestionsContainer}>
+              <View style={styles.suggestionsHeader}>
+                <Text style={styles.suggestionsHeaderText}>
+                  {phoneNumber.trim()
+                    ? `Matching Contacts (${matchingSuggestions.length})`
+                    : 'Recent Calls (Tap to Call)'}
+                </Text>
+              </View>
+              <ScrollView
+                style={styles.suggestionsList}
+                keyboardShouldPersistTaps="handled"
+                nestedScrollEnabled
+                showsVerticalScrollIndicator={false}
+              >
+                {matchingSuggestions.map((item) => (
+                  <TouchableOpacity
+                    key={item.id}
+                    style={styles.suggestionItem}
+                    onPress={() => handleSelectSuggestion(item)}
+                    activeOpacity={0.7}
+                  >
+                    <View style={styles.suggestionAvatar}>
+                      <Text style={styles.suggestionAvatarText}>
+                        {(item.name || 'C').charAt(0).toUpperCase()}
+                      </Text>
+                    </View>
+
+                    <View style={styles.suggestionInfo}>
+                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                        <Text style={styles.suggestionName} numberOfLines={1}>
+                          {item.name}
+                        </Text>
+                        {item.stage ? (
+                          <View style={styles.suggestionBadge}>
+                            <Text style={styles.suggestionBadgeText}>{item.stage}</Text>
+                          </View>
+                        ) : null}
+                      </View>
+                      <Text style={styles.suggestionPhone} numberOfLines={1}>
+                        {formatDisplayPhone(item.phone)}
+                      </Text>
+                    </View>
+
+                    <TouchableOpacity
+                      style={styles.quickCallBtn}
+                      onPress={(e) => {
+                        e.stopPropagation();
+                        handleDirectCallSuggestion(item);
+                      }}
+                      hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}
+                      activeOpacity={0.8}
+                      accessibilityLabel={`Call ${item.name}`}
+                    >
+                      <Phone size={13} color="#FFFFFF" strokeWidth={2.5} />
+                    </TouchableOpacity>
+                  </TouchableOpacity>
+                ))}
+              </ScrollView>
+            </View>
+          )}
+
           {/* 12 Keypad Buttons (3 Columns x 4 Rows) */}
           <View style={styles.keypadGrid}>
             {KEYPAD_BUTTONS.map((item) => (
               <TouchableOpacity
                 key={item.digit}
                 style={styles.keypadBtn}
-                onPress={() => appendDigit(item.digit)}
+                onPress={() => handleAppendDigit(item.digit)}
                 onLongPress={() => {
-                  if (item.digit === '0') appendDigit('+');
+                  if (item.digit === '0') handleAppendDigit('+');
                 }}
                 activeOpacity={0.65}
               >
@@ -353,6 +647,7 @@ const styles = StyleSheet.create({
   card: {
     width: '100%',
     maxWidth: 440,
+    maxHeight: '94%',
     backgroundColor: '#FFFFFF',
     borderTopLeftRadius: 28,
     borderTopRightRadius: 28,
@@ -555,5 +850,89 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: '700',
     color: '#0F9D58',
+  },
+  suggestionsContainer: {
+    backgroundColor: '#F8FAFC',
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+    marginBottom: 8,
+    overflow: 'hidden',
+    maxHeight: 120,
+  },
+  suggestionsHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    backgroundColor: '#F1F5F9',
+    borderBottomWidth: 1,
+    borderBottomColor: '#E2E8F0',
+  },
+  suggestionsHeaderText: {
+    fontSize: 9.5,
+    fontWeight: '800',
+    color: '#64748B',
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
+  },
+  suggestionsList: {
+    maxHeight: 95,
+  },
+  suggestionItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderBottomWidth: 1,
+    borderBottomColor: '#F1F5F9',
+    gap: 8,
+  },
+  suggestionAvatar: {
+    width: 26,
+    height: 26,
+    borderRadius: 13,
+    backgroundColor: '#DCFCE7',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  suggestionAvatarText: {
+    fontSize: 11,
+    fontWeight: '800',
+    color: '#15803D',
+  },
+  suggestionInfo: {
+    flex: 1,
+  },
+  suggestionName: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#0F172A',
+    maxWidth: 180,
+  },
+  suggestionBadge: {
+    backgroundColor: '#E2E8F0',
+    paddingHorizontal: 4,
+    paddingVertical: 1,
+    borderRadius: 4,
+  },
+  suggestionBadgeText: {
+    fontSize: 8.5,
+    fontWeight: '700',
+    color: '#475569',
+  },
+  suggestionPhone: {
+    fontSize: 11,
+    color: '#64748B',
+    marginTop: 1,
+  },
+  quickCallBtn: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    backgroundColor: '#0F9D58',
+    alignItems: 'center',
+    justifyContent: 'center',
   },
 });

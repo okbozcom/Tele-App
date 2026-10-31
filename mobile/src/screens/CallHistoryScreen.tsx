@@ -1152,7 +1152,10 @@ export const CallHistoryScreen: React.FC = () => {
       <CrmDateTimePickerModal
         visible={showDatePicker}
         mode="date"
+        title="Select Date to View History"
         initialDate={selectedCustomDate ? new Date(selectedCustomDate) : new Date()}
+        allowPastDates={true}
+        allowFutureDates={false}
         onClose={() => setShowDatePicker(false)}
         onConfirm={(isoDate: string) => {
           setSelectedCustomDate(isoDate);
