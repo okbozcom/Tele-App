@@ -70,7 +70,7 @@ export const bulkReassignSchema = z.object({
 
 export const updateLeadSchema = z.object({
   params: z.object({
-    id: z.string().regex(objectIdRegex, 'Invalid lead ID format'),
+    id: z.string().regex(objectIdRegex, 'Invalid lead ID format').or(z.string().regex(/^dial-[\w-]+$/)),
   }),
   body: z.object({
     name: z.string().min(1).trim().optional(),

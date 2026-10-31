@@ -26,7 +26,7 @@ import {
 import { useQuery } from '@tanstack/react-query';
 import { useDialerStore } from '../store/dialerStore';
 import { useCampaignStore } from '../store/campaignStore';
-import { fetchCampaigns } from '../api/leadApi';
+import { fetchCampaigns, createWalkInLead } from '../api/leadApi';
 import { callService } from '../services/call.service';
 import { callSession } from '../services/callSession';
 import { toast } from '../store/toastStore';
@@ -114,10 +114,23 @@ export const DirectDialpadModal: React.FC = () => {
       return;
     }
 
+    const targetCampaignId = selectedCampaignId || campaigns[0]?._id;
+    const leadName = customerName.trim() || `Direct Call (${phoneNumber.trim()})`;
+
+    // Automatically ensure the lead is saved in MongoDB under the agent's campaign immediately
+    if (targetCampaignId) {
+      createWalkInLead(targetCampaignId, {
+        name: leadName,
+        phone: phoneNumber.trim(),
+      }).catch((err) => {
+        console.warn('[DirectDialpad] Auto-saving lead in campaign:', err);
+      });
+    }
+
     const activeLead: Lead = {
       _id: `dial-${cleanDigits}`,
-      campaignId: selectedCampaignId || campaigns[0]?._id || 'default',
-      name: customerName.trim() || `Direct Call (${phoneNumber.trim()})`,
+      campaignId: targetCampaignId || 'default',
+      name: leadName,
       phone: phoneNumber.trim(),
       source: 'DIRECT',
       stage: 'New',

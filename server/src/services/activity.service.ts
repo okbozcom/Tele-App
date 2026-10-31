@@ -2,6 +2,7 @@ import { Types, FilterQuery } from 'mongoose';
 import { Activity, IActivityDoc } from '../models/activity.model';
 import { Lead, ILeadDoc } from '../models/lead.model';
 import { Campaign } from '../models/campaign.model';
+import { Pipeline } from '../models/pipeline.model';
 import { User, IUserDoc } from '../models/user.model';
 import { PipelineService } from './pipeline.service';
 import { SettingService } from './setting.service';
@@ -35,6 +36,55 @@ export class ActivityService {
     if (!lead && candidatePhone) {
       const cleanPhone = candidatePhone.replace(/\D/g, '').slice(-10);
       lead = await Lead.findOne({ phone: { $regex: cleanPhone } });
+    }
+
+    // Auto-create lead for direct dial / walk-in calls if not found in database
+    if (!lead && candidatePhone) {
+      const cleanDigits = candidatePhone.replace(/\D/g, '').slice(-10);
+      const targetCampaignId = (input as any).campaignId || (input as any).copyToCampaignId;
+      let targetCamp = targetCampaignId && Types.ObjectId.isValid(targetCampaignId)
+        ? await Campaign.findById(targetCampaignId)
+        : null;
+
+      if (!targetCamp) {
+        if (requester.role === 'AGENT') {
+          targetCamp = await Campaign.findOne({
+            isActive: true,
+            $or: [
+              { agentIds: requester._id },
+              ...(requester.branch ? [{ branch: requester.branch }] : []),
+            ],
+          });
+        }
+        if (!targetCamp) {
+          targetCamp = (await Campaign.findOne({ isActive: true })) || (await Campaign.findOne());
+        }
+      }
+
+      if (targetCamp) {
+        let initialStage = 'New';
+        if (targetCamp.pipelineId) {
+          const pipeline = await Pipeline.findById(targetCamp.pipelineId);
+          if (pipeline?.stages?.length) {
+            const sorted = [...pipeline.stages].sort((a, b) => a.order - b.order);
+            initialStage = sorted[0].name;
+          }
+        }
+
+        const defaultName = (input as any).name || (input as any).customerName || `Direct Call (${cleanDigits})`;
+        lead = await Lead.create({
+          campaignId: targetCamp._id,
+          name: defaultName,
+          phone: cleanDigits.length === 10 ? `+91 ${cleanDigits}` : candidatePhone,
+          source: 'DIRECT',
+          stage: input.stage || initialStage,
+          status: 'OPEN',
+          assignedTo: requester._id,
+          branch: requester.branch || targetCamp.branch || null,
+          attemptCount: 0,
+          customProperties: new Map(),
+        });
+      }
     }
 
     const formatDisposeResult = async (act: IActivityDoc, ld: ILeadDoc): Promise<DisposeResult> => {
@@ -88,11 +138,16 @@ export class ActivityService {
 
     // Permission & IDOR check:
     if (requester.role === 'AGENT') {
-      if (lead.assignedTo && lead.assignedTo.toString() !== requester._id.toString()) {
-        throw new AppError('Forbidden: You can only dispose leads assigned to you', 403);
-      }
+      const isDirectDial = leadId.startsWith('dial-') || (input as any).source === 'DIRECT' || (input as any).callerSource === 'DIALPAD';
       if (!lead.assignedTo) {
         lead.assignedTo = requester._id;
+      } else if (lead.assignedTo.toString() !== requester._id.toString()) {
+        if (isDirectDial || input.callAttempt) {
+          // Direct dial or active call attempt: Agent contacted customer, assign lead to this calling agent
+          lead.assignedTo = requester._id;
+        } else {
+          throw new AppError('Forbidden: You can only dispose leads assigned to you', 403);
+        }
       }
     } else if (requester.role === 'MANAGER') {
       const isManagerOfCampaign = campaign.managerId?.toString() === requester._id.toString();

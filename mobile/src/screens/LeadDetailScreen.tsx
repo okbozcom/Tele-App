@@ -863,6 +863,10 @@ export const LeadDetailScreen: React.FC = () => {
       queryClient.setQueryData(['myLeadsList'], updateLeadListCache);
       queryClient.setQueriesData({ queryKey: ['myLeadsList'] }, updateLeadListCache);
 
+      if (data?.lead) {
+        setCurrentLead(data.lead);
+      }
+
       queryClient.invalidateQueries({ queryKey: ['myLeads'] });
       queryClient.invalidateQueries({ queryKey: ['myLeadsList'] });
       queryClient.invalidateQueries({ queryKey: ['myLeadsCounts'] });

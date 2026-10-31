@@ -1106,14 +1106,24 @@ export class LeadService {
     id: string,
     updates: { name?: string; phone?: string; email?: string },
   ): Promise<ILeadDoc> {
-    const lead = await Lead.findById(id);
+    let lead = Types.ObjectId.isValid(id) ? await Lead.findById(id) : null;
+    if (!lead && id.startsWith('dial-')) {
+      const cleanPhone = id.replace(/\D/g, '').slice(-10);
+      lead = await Lead.findOne({ phone: { $regex: cleanPhone } });
+    }
     if (!lead) {
       throw new AppError('Lead not found', 404);
     }
 
     if (requester.role === 'AGENT') {
-      if (lead.assignedTo?.toString() !== requester._id.toString()) {
-        throw new AppError('Forbidden: You can only update leads assigned to you', 403);
+      if (!lead.assignedTo) {
+        lead.assignedTo = requester._id;
+      } else if (lead.assignedTo.toString() !== requester._id.toString()) {
+        if (id.startsWith('dial-') || lead.source === 'DIRECT') {
+          lead.assignedTo = requester._id;
+        } else {
+          throw new AppError('Forbidden: You can only update leads assigned to you', 403);
+        }
       }
     } else if (requester.role === 'MANAGER') {
       const campaign = await Campaign.findById(lead.campaignId);
